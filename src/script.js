@@ -16,15 +16,16 @@ document.addEventListener("DOMContentLoaded", () => {
         inferenceRunning: false
     };
 
-    // ─── ONNX Model Sessions ──────────────────────────────────────────────
-    let sessionPPE = null;      // best.onnx (Helmet + Vest)
-    let sessionFall = null;     // tuthenga.onnx (Fall Detection)
+    // ─── ONNX Model Sessions (3 models) ──────────────────────────────────
+    let sessionPPE  = null;     // best.onnx      → Helmet, Person, Vest
+    let sessionCone = null;     // bestcone.onnx  → traffic_cone, Sign
+    let sessionFall = null;     // tuthenga.onnx  → Fall (KHÔNG có person)
     let animFrameId = null;
 
-    // Class labels từ best.onnx (thứ tự từ model)
-    const PPE_CLASSES = ['helmet', 'person', 'vest'];
-    // Class labels từ tuthenga.onnx
-    const FALL_CLASSES = ['fall', 'person'];
+    // Class labels — đúng thứ tự index trong file .onnx đã export
+    const PPE_CLASSES  = ['helmet', 'person', 'vest'];   // best.onnx output shape [1, 7, 8400]
+    const CONE_CLASSES = ['traffic_cone', 'sign'];        // bestcone.onnx output shape [1, 6, 8400]
+    const FALL_CLASSES = ['fall'];                        // tuthenga.onnx — KHÔNG có class person
 
     // Canvas cho inference
     const inputCanvas = document.createElement('canvas');
@@ -33,18 +34,18 @@ document.addEventListener("DOMContentLoaded", () => {
     const inputCtx = inputCanvas.getContext('2d');
 
     // ─── DOM Elements ─────────────────────────────────────────────────────
-    const sections       = document.querySelectorAll('.page-section');
-    const navItems       = document.querySelectorAll('.nav-item[data-target]');
-    const cameraGrid     = document.getElementById('camera-grid-main');
+    const sections = document.querySelectorAll('.page-section');
+    const navItems = document.querySelectorAll('.nav-item[data-target]');
+    const cameraGrid = document.getElementById('camera-grid-main');
     const camCountSelect = document.getElementById('cam-count-select');
-    const notifBadge     = document.getElementById('notif-count');
-    const darkToggle     = document.getElementById('dark-mode-toggle');
+    const notifBadge = document.getElementById('notif-count');
+    const darkToggle = document.getElementById('dark-mode-toggle');
     const yoloStatusText = document.getElementById('yolo-status-text');
-    const mainVideo      = document.getElementById('main-video');
-    const videoWebcam    = document.getElementById('webcam');
-    const aiStatusBtn    = document.getElementById('ai-status-indicator');
-    const ppeAudio       = document.getElementById('audio-warning');
-    const alarmAudio     = document.getElementById('audio-alarm');
+    const mainVideo = document.getElementById('main-video');
+    const videoWebcam = document.getElementById('webcam');
+    const aiStatusBtn = document.getElementById('ai-status-indicator');
+    const ppeAudio = document.getElementById('audio-warning');
+    const alarmAudio = document.getElementById('audio-alarm');
 
     // Overlay canvas để vẽ bounding box
     let overlayCanvas = null;
@@ -155,19 +156,27 @@ document.addEventListener("DOMContentLoaded", () => {
                 executionProviders: ['wasm'],
                 graphOptimizationLevel: 'all'
             });
-            console.log('[AI] best.onnx loaded. Inputs:', sessionPPE.inputNames, 'Outputs:', sessionPPE.outputNames);
+            console.log('[AI] best.onnx loaded. Classes:', PPE_CLASSES);
+
+            setIndicator('offline', 'LOADING CONE...');
+            // Tải bestcone.onnx (traffic_cone + sign)
+            sessionCone = await ort.InferenceSession.create('./models/bestcone.onnx', {
+                executionProviders: ['wasm'],
+                graphOptimizationLevel: 'all'
+            });
+            console.log('[AI] bestcone.onnx loaded. Classes:', CONE_CLASSES);
 
             setIndicator('offline', 'LOADING FALL...');
-            // Tải tuthenga.onnx (Fall detection)
+            // Tải tuthenga.onnx (Fall only — KHÔNG có class person)
             sessionFall = await ort.InferenceSession.create('./models/tuthenga.onnx', {
                 executionProviders: ['wasm'],
                 graphOptimizationLevel: 'all'
             });
-            console.log('[AI] tuthenga.onnx loaded.');
+            console.log('[AI] tuthenga.onnx loaded. Classes:', FALL_CLASSES);
 
             appState.modelLoaded = true;
-            setIndicator('active', 'MODEL LOADED');
-            console.log('[AI] All models ready!');
+            setIndicator('active', '3 MODELS LOADED');
+            console.log('[AI] PPE + Cone + Fall — All ready!');
 
             // Tự động mở camera sau khi load xong
             await startCamera();
@@ -268,19 +277,22 @@ document.addEventListener("DOMContentLoaded", () => {
                 // 3. Chuẩn bị Tensor [1, 3, 640, 640] - NCHW, normalized 0-1
                 const tensor = preprocessFrame(imageData);
 
-                // 4. Chạy inference PPE
+                // 4. PPE model: Helmet, Person, Vest (best.onnx)
                 const ppeOutput = await sessionPPE.run({ [sessionPPE.inputNames[0]]: tensor });
                 const ppeResults = postprocess(ppeOutput[sessionPPE.outputNames[0]].data, PPE_CLASSES);
 
-                // 5. Chạy inference Fall
+                // 5. Cone model: traffic_cone, Sign (bestcone.onnx) — KHÔNG có person
+                const coneOutput = await sessionCone.run({ [sessionCone.inputNames[0]]: tensor });
+                const coneResults = postprocess(coneOutput[sessionCone.outputNames[0]].data, CONE_CLASSES);
+
+                // 6. Fall model: Fall only (tuthenga.onnx) — KHÔNG có person
                 const fallOutput = await sessionFall.run({ [sessionFall.inputNames[0]]: tensor });
                 const fallResults = postprocess(fallOutput[sessionFall.outputNames[0]].data, FALL_CLASSES);
 
-                // 6. Kết hợp kết quả và vẽ
-                const allDetections = [...ppeResults, ...fallResults];
-                drawDetections(allDetections);
+                // 7. Gộp tất cả kết quả và vẽ Bounding Box
+                drawDetections([...ppeResults, ...coneResults, ...fallResults]);
 
-                // 7. Kiểm tra vi phạm và kích hoạt thông báo
+                // 8. Chỉ kiểm tra vi phạm bằng PPE + Fall (Cone không liên quan compliance)
                 checkViolations(ppeResults, fallResults);
 
             } catch (err) {
@@ -299,7 +311,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const float32 = new Float32Array(3 * width * height);
 
         for (let i = 0; i < width * height; i++) {
-            float32[i]                  = data[i * 4]     / 255.0; // R
+            float32[i] = data[i * 4] / 255.0; // R
             float32[i + width * height] = data[i * 4 + 1] / 255.0; // G
             float32[i + 2 * width * height] = data[i * 4 + 2] / 255.0; // B
         }
@@ -318,8 +330,8 @@ document.addEventListener("DOMContentLoaded", () => {
             // Đọc cx, cy, w, h
             const cx = rawData[0 * numBoxes + i];
             const cy = rawData[1 * numBoxes + i];
-            const w  = rawData[2 * numBoxes + i];
-            const h  = rawData[3 * numBoxes + i];
+            const w = rawData[2 * numBoxes + i];
+            const h = rawData[3 * numBoxes + i];
 
             // Tìm class score cao nhất
             let maxConf = 0, maxClass = 0;
@@ -384,8 +396,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const filters = {
             helmet: document.getElementById('filter-helmet')?.checked,
-            vest:   document.getElementById('filter-vest')?.checked,
-            pose:   document.getElementById('filter-pose')?.checked
+            vest: document.getElementById('filter-vest')?.checked,
+            pose: document.getElementById('filter-pose')?.checked
         };
 
         detections.forEach(det => {
@@ -430,14 +442,14 @@ document.addEventListener("DOMContentLoaded", () => {
         const now = Date.now();
         const filters = {
             helmet: document.getElementById('filter-helmet')?.checked,
-            vest:   document.getElementById('filter-vest')?.checked,
-            pose:   document.getElementById('filter-pose')?.checked
+            vest: document.getElementById('filter-vest')?.checked,
+            pose: document.getElementById('filter-pose')?.checked
         };
 
         const persons = ppeResults.filter(d => d.className === 'person');
         const helmets = ppeResults.filter(d => d.className === 'helmet');
-        const vests   = ppeResults.filter(d => d.className === 'vest');
-        const falls   = fallResults.filter(d => d.className === 'fall' || d.className === 'down');
+        const vests = ppeResults.filter(d => d.className === 'vest');
+        const falls = fallResults.filter(d => d.className === 'fall' || d.className === 'down');
 
         let violatorCount = 0;
         let violationDetail = null;
@@ -447,7 +459,7 @@ document.addEventListener("DOMContentLoaded", () => {
             // Kiểm tra: có mũ nào đè lên người này không?
             const hasHelmet = helmets.some(h => getOverlapRatio(h, person) > 0.05);
             // Kiểm tra: có áo nào đè lên người này không?
-            const hasVest   = vests.some(v => getOverlapRatio(v, person) > 0.10);
+            const hasVest = vests.some(v => getOverlapRatio(v, person) > 0.10);
 
             if (filters.helmet && !hasHelmet) {
                 violatorCount++;
@@ -508,8 +520,8 @@ document.addEventListener("DOMContentLoaded", () => {
         if (navigator.vibrate) navigator.vibrate([300, 100, 300]);
 
         // 4. Phát âm thanh cảnh báo
-        if (type === 'FALL') alarmAudio?.play().catch(() => {});
-        else ppeAudio?.play().catch(() => {});
+        if (type === 'FALL') alarmAudio?.play().catch(() => { });
+        else ppeAudio?.play().catch(() => { });
 
         // 5. Chèn vào bảng thống kê
         const timeStr = new Date().toTimeString().slice(0, 8);
