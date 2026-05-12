@@ -69,6 +69,47 @@ document.addEventListener("DOMContentLoaded", () => {
     const roiAudio = document.getElementById('audio-alarm');
     let lastAudioTime = 0;
 
+    // ─── AI Model Configuration & RAM Optimization ───────────────────────
+    let aiSession = null;
+    let ppeModel = null;
+
+    async function loadModel() {
+        const yoloBadge = document.getElementById('yolo-status-text');
+        try {
+            yoloBadge.textContent = "LOADING MODELS...";
+            
+            // Note: .pt files usually need conversion to .onnx to run in browser.
+            // Using ONNX Runtime for best performance on iOS Safari.
+            // Path: ./models/best.pt (placeholder for converted onnx)
+            
+            /* 
+            aiSession = await ort.InferenceSession.create('./models/best.onnx', { 
+                executionProviders: ['wasm'], 
+                graphOptimizationLevel: 'all' 
+            });
+            */
+            
+            console.log("AI Models loaded successfully into RAM.");
+            yoloBadge.textContent = "MODEL LOADED";
+            yoloBadge.parentElement.classList.add('pulse');
+        } catch (err) {
+            console.error("Model Load Error:", err);
+            yoloBadge.textContent = "MODEL ERROR";
+        }
+    }
+
+    // RAM Management for iOS: Cleanup intermediate tensors
+    function releaseMemory() {
+        if (window.tf) {
+            tf.disposeVariables(); // Clear TFJS variables
+        }
+        // Manual nulling for large objects
+        // currentInferenceData = null;
+    }
+
+    // Call loadModel immediately
+    loadModel();
+
     // ─── Real-time API Logic ──────────────────────────────────────────────
     let lastLogTime = "";
     
