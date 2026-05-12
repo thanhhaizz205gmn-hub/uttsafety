@@ -1,167 +1,200 @@
 /* ═══════════════════════════════════════════════════════════
-   SMART HOME AI — script.js (Optimized for iOS)
+   UTT AI SAFETY — script.js (Live Test Optimization)
    ═══════════════════════════════════════════════════════════ */
 
 document.addEventListener("DOMContentLoaded", () => {
 
     // ─── App State ────────────────────────────────────────────────────────
     const appState = {
-        activeCamera: {
-            id: 'cam-01',
-            name: 'Camera Tiền sảnh A1'
-        },
-        filters: {
-            helmet: true,
-            vest: true,
-            pose: true
-        },
-        isProcessing: false
+        activePage: 'home',
+        notifCount: 0,
+        gridCount: 4,
+        isDarkMode: false,
+        filters: { helmet: true, vest: true, pose: true },
+        isCameraActive: false
     };
 
     // ─── DOM Elements ─────────────────────────────────────────────────────
+    const sections = document.querySelectorAll('.page-section');
+    const navItems = document.querySelectorAll('.nav-item');
+    const cameraGrid = document.getElementById('camera-grid-main');
+    const camCountSelect = document.getElementById('cam-count-select');
+    const notifBadge = document.getElementById('notif-count');
+    const darkModeToggle = document.getElementById('dark-mode-toggle');
+    const yoloStatusText = document.getElementById('yolo-status-text');
+    
+    // Main Camera Elements
     const mainVideo = document.getElementById('main-video');
     const videoWebcam = document.getElementById('webcam');
-    const btnStart = document.getElementById('btn-start-cam');
-    const btnStop = document.getElementById('btn-stop-cam');
-    const camSourceSelect = document.getElementById('cam-source-select');
     
-    // Filter Elements
-    const filterHelmet = document.getElementById('filter-helmet');
-    const filterVest = document.getElementById('filter-vest');
-    const filterPose = document.getElementById('filter-pose');
-
-    // Stats Elements
-    const violationHistoryBody = document.getElementById('violation-history-body');
+    // Audio
     const ppeAudio = document.getElementById('audio-warning');
     const alarmAudio = document.getElementById('audio-alarm');
 
-    // ─── Filter Logic ─────────────────────────────────────────────────────
-    const updateFilters = () => {
-        appState.filters.helmet = filterHelmet.checked;
-        appState.filters.vest = filterVest.checked;
-        appState.filters.pose = filterPose.checked;
-        console.log("Filters Updated:", appState.filters);
-    };
+    // ─── Page Switching Logic ─────────────────────────────────────────────
+    navItems.forEach(item => {
+        item.addEventListener('click', (e) => {
+            const target = item.getAttribute('data-target');
+            if (!target) return;
+            e.preventDefault();
 
-    filterHelmet.addEventListener('change', updateFilters);
-    filterVest.addEventListener('change', updateFilters);
-    filterPose.addEventListener('change', updateFilters);
+            // Update UI
+            navItems.forEach(n => n.classList.remove('active'));
+            item.classList.add('active');
 
-    // ─── Notification System ──────────────────────────────────────────────
-    function sendPushNotification(title, message) {
-        // Browser Notification
-        if ("Notification" in window) {
-            if (Notification.permission === "granted") {
-                new Notification(title, { body: message, icon: 'assets/icons/icon-192x192.png' });
-            } else if (Notification.permission !== "denied") {
-                Notification.requestPermission();
-            }
+            sections.forEach(s => s.classList.remove('active'));
+            document.getElementById(`section-${target}`).classList.add('active');
+            
+            appState.activePage = target;
+            if (target === 'home') initGrid();
+        });
+    });
+
+    // ─── Camera Grid Management ───────────────────────────────────────────
+    function initGrid() {
+        const count = parseInt(camCountSelect.value);
+        appState.gridCount = count;
+        
+        // Update Grid CSS Class
+        cameraGrid.className = `camera-grid grid-${count}`;
+        
+        // Keep primary cam card, remove others
+        const primaryCard = document.getElementById('primary-cam-card');
+        cameraGrid.innerHTML = '';
+        cameraGrid.appendChild(primaryCard);
+
+        // Add Placeholder Cards
+        for (let i = 2; i <= count; i++) {
+            const card = document.createElement('div');
+            card.className = 'camera-card';
+            card.innerHTML = `
+                <div class="cam-info-top"><span class="cam-tag">CAM 0${i}</span></div>
+                <div class="stream-container placeholder">
+                    <div style="color:var(--text-muted); font-size:0.7rem; text-align:center;">
+                        <i data-lucide="video-off"></i><br>No Signal
+                    </div>
+                </div>
+            `;
+            cameraGrid.appendChild(card);
         }
-        
-        // Mobile Modal Simulation (Always show in UI)
-        showInAppAlert(title, message);
-    }
-
-    function showInAppAlert(title, message) {
-        const alertBox = document.createElement('div');
-        alertBox.className = 'in-app-alert glass';
-        alertBox.innerHTML = `
-            <div class="alert-icon"><i data-lucide="alert-triangle"></i></div>
-            <div class="alert-body">
-                <strong>${title}</strong>
-                <p>${message}</p>
-            </div>
-        `;
-        document.body.appendChild(alertBox);
         lucide.createIcons();
-        
-        setTimeout(() => alertBox.classList.add('show'), 100);
-        setTimeout(() => {
-            alertBox.classList.remove('show');
-            setTimeout(() => alertBox.remove(), 500);
-        }, 5000);
+        setupEnlargeLogic();
     }
 
-    // ─── Real-time API & Alert Logic ──────────────────────────────────────
+    camCountSelect.addEventListener('change', initGrid);
+
+    function setupEnlargeLogic() {
+        document.querySelectorAll('.camera-card').forEach(card => {
+            card.addEventListener('dblclick', () => {
+                card.classList.toggle('enlarged');
+            });
+            // Also support expand button
+            const btn = card.querySelector('.btn-expand');
+            if (btn) {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    card.classList.toggle('enlarged');
+                });
+            }
+        });
+    }
+
+    // ─── Dark Mode Toggle ─────────────────────────────────────────────────
+    darkModeToggle.addEventListener('change', () => {
+        appState.isDarkMode = darkModeToggle.checked;
+        document.documentElement.setAttribute('data-theme', appState.isDarkMode ? 'dark' : 'light');
+        localStorage.setItem('theme', appState.isDarkMode ? 'dark' : 'light');
+    });
+
+    // Load saved theme
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme === 'dark') {
+        darkModeToggle.checked = true;
+        document.documentElement.setAttribute('data-theme', 'dark');
+    }
+
+    // ─── AI Notification & Alert Logic ────────────────────────────────────
     let lastLogTime = "";
 
     async function fetchSystemData() {
         try {
-            const logsRes = await fetch('/api/logs');
-            const data = await logsRes.json();
+            const res = await fetch('/api/logs');
+            const data = await res.json();
             const logs = data.logs || [];
 
             if (logs.length > 0) {
                 const latestLog = logs[0];
                 if (latestLog.time !== lastLogTime) {
                     lastLogTime = latestLog.time;
-                    processLogWithFilters(latestLog);
+                    processAlert(latestLog);
                 }
-                renderHistory(logs);
+                updateStatsTable(logs);
             }
         } catch (e) {
-            console.error("API Error:", e);
+            console.error("Fetch error:", e);
         }
     }
 
-    function processLogWithFilters(log) {
-        let shouldAlert = false;
-        let alertType = "";
+    function processAlert(log) {
+        // Read filters
+        const helmet = document.getElementById('filter-helmet').checked;
+        const vest = document.getElementById('filter-vest').checked;
+        const pose = document.getElementById('filter-pose').checked;
 
-        // Logic lọc dựa trên cấu hình người dùng
+        let triggered = false;
         if (log.type === 'PPE') {
-            if (log.detail.includes('mũ') && appState.filters.helmet) shouldAlert = true;
-            if (log.detail.includes('áo') && appState.filters.vest) shouldAlert = true;
-            alertType = "CẢNH BÁO AN TOÀN";
-        } else if (log.type === 'ROI' && appState.filters.pose) {
-            // Giả định ROI trong context này là xâm nhập hoặc ngã
-            shouldAlert = true;
-            alertType = "CẢNH BÁO XÂM NHẬP";
+            if (log.detail.includes('mũ') && helmet) triggered = true;
+            if (log.detail.includes('áo') && vest) triggered = true;
+        } else if (log.type === 'ROI' && pose) {
+            triggered = true;
         }
 
-        if (shouldAlert) {
-            const message = `Phát hiện vi phạm tại ${appState.activeCamera.name}!`;
-            sendPushNotification(alertType, message);
-            
-            // Play Sound
+        if (triggered) {
+            // Update Badge
+            appState.notifCount++;
+            notifBadge.textContent = appState.notifCount;
+            notifBadge.classList.add('pulse');
+            setTimeout(() => notifBadge.classList.remove('pulse'), 500);
+
+            // Audio Alert
             if (log.type === 'PPE') ppeAudio.play().catch(() => {});
             else alarmAudio.play().catch(() => {});
 
-            // Visual effect on the camera card
-            document.querySelector(`[data-cam-id="${appState.activeCamera.id}"]`).classList.add('pulse-active');
-            setTimeout(() => {
-                document.querySelector(`[data-cam-id="${appState.activeCamera.id}"]`).classList.remove('pulse-active');
-            }, 5000);
+            // Visual indicator
+            const indicator = document.getElementById('ai-status-indicator');
+            indicator.style.background = 'var(--danger)';
+            setTimeout(() => indicator.style.background = 'var(--primary)', 2000);
         }
     }
 
-    function renderHistory(logs) {
-        violationHistoryBody.innerHTML = logs.slice(0, 5).map(log => `
+    function updateStatsTable(logs) {
+        const tableBody = document.getElementById('stats-table-body');
+        if (!tableBody) return;
+        tableBody.innerHTML = logs.slice(0, 10).map(log => `
             <tr>
                 <td>${log.time}</td>
-                <td style="font-weight:600">${appState.activeCamera.name}</td>
-                <td><span class="badge-${log.type === 'PPE' ? 'warning' : 'danger'}">${log.type}</span></td>
-                <td>#${log.id}</td>
+                <td>CAM 01</td>
+                <td><span class="badge-${log.type === 'PPE' ? 'warning' : 'danger'}">${log.type}: ${log.detail}</span></td>
             </tr>
         `).join('');
     }
 
-    // Polling
     setInterval(fetchSystemData, 1500);
 
-    // ─── Camera Management ────────────────────────────────────────────────
-    function stopAllCameraTracks() {
-        const activeStream = videoWebcam.srcObject;
-        if (activeStream) {
-            activeStream.getTracks().forEach(track => track.stop());
-            videoWebcam.srcObject = null;
+    // ─── Camera & Device Compatibility ────────────────────────────────────
+    async function startCamera() {
+        // Release previous tracks
+        if (videoWebcam.srcObject) {
+            videoWebcam.srcObject.getTracks().forEach(t => t.stop());
         }
-    }
 
-    async function initIOSCamera() {
-        stopAllCameraTracks();
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
         const constraints = {
-            video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } },
+            video: {
+                facingMode: isMobile ? 'environment' : 'user',
+                width: { ideal: 640 },
+                height: { ideal: 480 }
+            },
             audio: false
         };
 
@@ -169,65 +202,38 @@ document.addEventListener("DOMContentLoaded", () => {
             const stream = await navigator.mediaDevices.getUserMedia(constraints);
             mainVideo.style.display = 'none';
             videoWebcam.style.display = 'block';
-            videoWebcam.style.opacity = '1';
             videoWebcam.srcObject = stream;
             await videoWebcam.play();
-            
-            appState.isProcessing = true;
-            document.querySelector(`[data-cam-id="${appState.activeCamera.id}"] .status-dot`).classList.remove('offline');
+            yoloStatusText.textContent = "SYSTEM ACTIVE";
+            appState.isCameraActive = true;
         } catch (err) {
-            alert("Lỗi Camera: " + err.name);
-            btnStart.disabled = false;
-            btnStart.innerHTML = `<i data-lucide="refresh-cw"></i> Thử lại`;
-            lucide.createIcons();
+            console.error("Camera Error:", err);
+            let msg = "Lỗi Camera: " + err.name;
+            if (err.name === 'NotReadableError') msg = "Camera đang bị kẹt. Hãy đóng các app khác và nhấn vào logo Robot để thử lại.";
+            alert(msg);
+            yoloStatusText.textContent = "CAMERA ERROR";
         }
     }
 
-    // Event Listeners for Camera
-    if (btnStart) {
-        btnStart.addEventListener('click', () => {
-            const mode = camSourceSelect.value;
-            if (mode === '2') {
-                initIOSCamera();
-            } else {
-                mainVideo.src = `/video_feed/1`; // Giả định nguồn 1
-                mainVideo.style.display = 'block';
-                videoWebcam.style.display = 'none';
-            }
-            btnStart.disabled = true;
-            btnStop.disabled = false;
-        });
+    // AI Indicator acts as a manual camera trigger/retry
+    document.getElementById('ai-status-indicator').addEventListener('click', startCamera);
+
+    // ─── AI Model Loader (Mock/Placeholder for ONNX) ──────────────────────
+    async function loadModel() {
+        try {
+            // Simulated ONNX load
+            console.log("Model loading...");
+            // if (window.ort) { ... }
+            setTimeout(() => {
+                yoloStatusText.textContent = "AI READY";
+                startCamera(); // Auto start camera on load
+            }, 2000);
+        } catch (e) {
+            yoloStatusText.textContent = "LOAD ERROR";
+        }
     }
 
-    if (btnStop) {
-        btnStop.addEventListener('click', () => {
-            stopAllCameraTracks();
-            mainVideo.src = '';
-            btnStart.disabled = false;
-            btnStop.disabled = true;
-            appState.isProcessing = false;
-            document.querySelector(`[data-cam-id="${appState.activeCamera.id}"] .status-dot`).classList.add('offline');
-        });
-    }
-
-    // Switch Camera Logic
-    document.querySelectorAll('.camera-card').forEach(card => {
-        card.addEventListener('click', function() {
-            const camId = this.getAttribute('data-cam-id');
-            const camName = this.querySelector('h4').textContent;
-            
-            // UI Update
-            document.querySelectorAll('.camera-card').forEach(c => c.classList.remove('active'));
-            this.classList.add('active');
-            
-            // State Update
-            appState.activeCamera.id = camId;
-            appState.activeCamera.name = camName;
-            
-            console.log("Switched to:", camName);
-        });
-    });
-
-    // Request Notification Permission
-    if ("Notification" in window) Notification.requestPermission();
+    // Initialize
+    initGrid();
+    loadModel();
 });
