@@ -44,8 +44,26 @@ document.addEventListener("DOMContentLoaded", () => {
     const mainVideo = document.getElementById('main-video');
     const videoWebcam = document.getElementById('webcam');
     const aiStatusBtn = document.getElementById('ai-status-indicator');
-    const ppeAudio = document.getElementById('audio-warning');
-    const alarmAudio = document.getElementById('audio-alarm');
+    const alarmAudio  = document.getElementById('audio-alarm');
+    const ppeAudio    = document.getElementById('audio-warning');
+    const fileUpload  = document.getElementById('file-upload');
+    const btnUpload   = document.getElementById('btn-upload-video');
+
+    // --- Unlock Audio (Browser autoplay policy) ---
+    let audioUnlocked = false;
+    function unlockAudio() {
+        if (audioUnlocked) return;
+        [ppeAudio, alarmAudio].forEach(a => {
+            if (!a) return;
+            a.volume = 0;
+            a.play().then(() => { a.pause(); a.currentTime = 0; a.volume = 1; }).catch(() => {});
+        });
+        audioUnlocked = true;
+        document.removeEventListener('click', unlockAudio);
+        document.removeEventListener('touchstart', unlockAudio);
+    }
+    document.addEventListener('click',      unlockAudio, { once: true });
+    document.addEventListener('touchstart', unlockAudio, { once: true });
 
     // Overlay canvas để vẽ bounding box
     let overlayCanvas = null;

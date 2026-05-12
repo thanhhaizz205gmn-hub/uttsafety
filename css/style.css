@@ -70,7 +70,9 @@ body {
     border-bottom: 1px solid var(--border-color);
 }
 
-.app-header h1 { font-size: 1.2rem; font-weight: 800; letter-spacing: -0.5px; }
+.header-left { display: flex; align-items: center; gap: 12px; }
+.app-logo { width: 40px; height: 40px; object-fit: contain; }
+.brand-text h1 { font-size: 1rem; font-weight: 800; letter-spacing: -0.5px; }
 
 .yolo-status {
     font-size: 0.65rem;
@@ -79,6 +81,17 @@ body {
     gap: 5px;
     color: var(--text-muted);
 }
+
+/* ── Upload Inline Button ── */
+.btn-upload-inline {
+    display: flex; align-items: center; gap: 5px;
+    padding: 7px 13px; border-radius: 10px;
+    border: 1.5px dashed var(--primary);
+    background: var(--primary-light); color: var(--primary);
+    font-size: .75rem; font-weight: 700; cursor: pointer;
+    transition: all .2s;
+}
+.btn-upload-inline:hover { background: var(--primary); color: #fff; }
 
 .notif-badge-container { position: relative; }
 .badge-count {
