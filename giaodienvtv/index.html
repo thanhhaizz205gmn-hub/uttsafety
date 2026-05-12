@@ -1,239 +1,142 @@
 <!DOCTYPE html>
-<html lang="vi">
-
+<html lang="vi" data-theme="light">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Safety & Security Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>UTT AI SAFETY - COMMAND CENTER</title>
     <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
-
-<body class="dark-theme">
-    <div class="app-container">
-        <!-- Sidebar -->
-        <aside class="sidebar" id="sidebar">
-            <div class="logo">
-                <img src="./logo.png" alt="UTT Logo" style="width: 120px; height: auto;">
-                <span class="sidebar-text">UTT AI SAFETY</span>
-                <button id="sidebar-toggle" class="btn-sidebar-toggle"><i data-lucide="chevron-left"></i></button>
-            </div>
-            <nav>
-                <ul>
-                    <li class="active" data-page="dashboard">
-                        <i data-lucide="layout-grid"></i>
-                        <span class="sidebar-text">Tổng quan</span>
-                    </li>
-                    <li data-page="cameras">
-                        <i data-lucide="video"></i>
-                        <span class="sidebar-text">Hệ thống Camera</span>
-                    </li>
-                    <li data-page="analytics">
-                        <i data-lucide="bar-chart-3"></i>
-                        <span class="sidebar-text">Thống kê AI</span>
-                    </li>
-                    <li data-page="settings">
-                        <i data-lucide="settings"></i>
-                        <span class="sidebar-text">Cài đặt</span>
-                    </li>
-                </ul>
-            </nav>
-            <div class="sidebar-footer">
-                <div class="user-profile">
-                    <img src="https://ui-avatars.com/api/?name=Admin&background=3b82f6&color=fff" alt="Avatar">
-                    <div class="user-info">
-                        <span class="name">Quản trị viên</span>
-                        <span class="role">Manager</span>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header class="app-header glass">
+            <div class="header-left">
+                <img src="logo.png" alt="UTT Logo" class="app-logo"
+                     onerror="this.style.display='none'">
+                <div class="brand-text">
+                    <h1>UTT AI SAFETY</h1>
+                    <div class="yolo-status">
+                        <span class="status-dot pulse"></span>
+                        <span id="yolo-status-text">SYSTEM ACTIVE</span>
                     </div>
                 </div>
             </div>
-        </aside>
-
-        <main class="main-content">
-            <!-- Header -->
-            <header class="top-header">
-                <div class="header-left">
-                    <h1 id="page-title">Hệ thống giám sát an toàn lao động</h1>
-                </div>
-                <div class="header-right">
-                    <div class="status-group">
-                        <div class="yolo-status-badge" id="yolo-badge">
-                            <span class="dot"></span>
-                            <span id="yolo-status-text">YOLO READY</span>
-                        </div>
-                        <div class="cam-counter-badge">
-                            <i data-lucide="camera"></i>
-                            <span id="cam-counter-text">0/0</span>
-                        </div>
-                        <div class="live-tag">LIVE</div>
-                        <div class="header-peripheral-icons" style="display: flex; gap: 8px; color: var(--success);">
-                            <i data-lucide="volume-2" title="Loa cảnh báo đang kết nối"></i>
-                            <i data-lucide="smartphone" title="App Kỹ sư đang kết nối"></i>
-                        </div>
-                    </div>
-                    <div class="header-actions">
-                        <div class="notifications">
-                            <i data-lucide="bell" class="icon-btn"></i>
-                            <span class="badge" id="alert-badge">0</span>
-                        </div>
-                        <div class="time" id="current-time">--:--</div>
-                    </div>
-                </div>
-            </header>
-
-            <div class="page-section active" id="page-dashboard">
-                <div class="dashboard-layout">
-                    <!-- Main Viewport (2/3) -->
-                    <div class="main-viewport">
-                        <div class="card glass cam-stream-container" id="video-container">
-                            <div class="card-header"
-                                style="display: flex; justify-content: space-between; align-items: center;">
-                                <h3><i data-lucide="monitor"></i> Camera 01: Khu vực thi công</h3>
-                                <div class="cam-view-controls" style="display: flex; gap: 10px; align-items: center;">
-                                    <select class="select-sm" id="cam-source-select">
-                                        <option value="1">Video Record (Mặc định)</option>
-                                        <option value="3">Video từ máy (Tải lên)</option>
-                                        <option value="2">Camera trực tiếp</option>
-                                    </select>
-                                    <div id="file-upload-group" style="display: none;">
-                                        <input type="file" id="video-upload-input" accept="video/*"
-                                            style="display: none;">
-                                        <button class="btn-icon" id="btn-browse-file" title="Chọn tệp video">
-                                            <i data-lucide="folder-open"></i>
-                                            <span id="selected-filename"
-                                                style="font-size: 0.7rem; margin-left: 8px; color: var(--text-muted); max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Chưa
-                                                chọn file</span>
-                                        </button>
-                                    </div>
-                                    <button class="btn-primary-sm" id="btn-start-cam"><i data-lucide="play"></i> Kết
-                                        nối</button>
-                                    <button class="btn-danger-sm" id="btn-stop-cam" disabled><i
-                                            data-lucide="square"></i> Dừng</button>
-                                </div>
-                            </div>
-                            <div class="viewport-box" id="cam-viewer-box">
-                                <img id="main-video" src="" alt="Vui lòng nhấn Kết nối">
-
-                                <div id="roi-alert-overlay" class="roi-overlay">
-                                    <div class="roi-alert-content">
-                                        <i data-lucide="alert-octagon"></i>
-                                        <h2>DANGER: ROI INTRUSION</h2>
-                                        <p>Phát hiện xâm nhập vùng cấm!</p>
-                                    </div>
-                                </div>
-
-                                <div class="stream-overlay-info">
-                                    <span class="badge-red"><span class="pulse-dot"></span> AI MONITORING</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="card glass ai-recommendation">
-                            <div class="card-header">
-                                <h3>Phân tích & Gợi ý AI</h3>
-                            </div>
-                            <div class="ai-content" id="ai-recs">
-                                <p class="text-muted">Hệ thống đang hoạt động bình thường...</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Right Sidebar (1/3) -->
-                    <aside class="dashboard-right-sidebar">
-                        <div class="stats-grid-vertical">
-                            <div class="card glass stat-mini-card">
-                                <div class="stat-info">
-                                    <span class="label">Xâm nhập ROI</span>
-                                    <h2 id="roi-status" class="text-success">An toàn</h2>
-                                </div>
-                            </div>
-                            <div class="card glass stat-mini-card">
-                                <div class="stat-icon-box"><i data-lucide="camera" class="text-success"></i></div>
-                                <div class="stat-info">
-                                    <span class="label">Camera Online</span>
-                                    <h2 id="cam-online-count">--</h2>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Violation List -->
-                        <div class="card glass violation-list-card" id="violation-panel">
-                            <div class="card-header">
-                                <h3><i data-lucide="list-x" class="text-danger"></i> Danh sách Vi phạm</h3>
-                                <span class="badge-danger" id="violation-count">0</span>
-                            </div>
-                            <div class="violation-scroll-area" id="violation-list">
-                                <!-- Items: [Time] - ID - Violation -->
-                            </div>
-                        </div>
-                    </aside>
+            <div class="header-actions">
+                <div class="notif-badge-container">
+                    <button class="btn-circle" id="btn-notifications">
+                        <i data-lucide="bell"></i>
+                    </button>
+                    <span id="notif-count" class="badge-count">0</span>
                 </div>
             </div>
+        </header>
 
-            <!-- Page: Cameras -->
-            <div class="page-section" id="page-cameras" style="display: none; padding: 24px;">
-                <div class="card glass">
-                    <div class="card-header">
-                        <h3><i data-lucide="video"></i> Quản lý Hệ thống Camera</h3>
-                    </div>
-                    <div class="card-body" style="padding: 20px;">
-                        <p class="text-muted">Tính năng đang được phát triển...</p>
+        <main class="app-main">
+            <!-- SECTION 1: MONITORING (HOME) -->
+            <section id="section-home" class="page-section active">
+
+                <!-- Grid Controls + Upload Button ngang hàng -->
+                <div class="grid-controls glass">
+                    <span id="active-cam-label">CAM 01 · CHẾ ĐỘ 16:9</span>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <!-- NÚT + CHỌN VIDEO (ngang hàng với select camera) -->
+                        <button class="btn-upload-inline"
+                                id="btn-upload-video"
+                                title="Tải video lên để chạy AI"
+                                onclick="document.getElementById('file-upload').click()">
+                            <i data-lucide="plus-circle"></i>
+                            <span>Video</span>
+                        </button>
+                        <input type="file" id="file-upload" style="display:none" accept="video/*">
+
+                        <select id="cam-count-select" class="mini-select">
+                            <option value="1" selected>1 Camera</option>
+                            <option value="2">2 Camera</option>
+                            <option value="4">4 Camera</option>
+                        </select>
                     </div>
                 </div>
-            </div>
 
-            <!-- Page: Analytics -->
-            <div class="page-section" id="page-analytics" style="display: none; padding: 24px;">
-                <div class="card glass">
-                    <div class="card-header">
-                        <h3><i data-lucide="bar-chart-3"></i> Thống kê Lịch sử Vi phạm</h3>
-                    </div>
-                    <div class="card-body" style="padding: 20px;">
-                        <div class="violation-history-table-container" style="max-height: 500px; overflow-y: auto;">
-                            <table class="history-table" id="history-table"
-                                style="width: 100%; border-collapse: collapse;">
-                                <thead>
-                                    <tr style="text-align: left; border-bottom: 1px solid var(--border-color);">
-                                        <th style="padding: 12px;">ID</th>
-                                        <th style="padding: 12px;">Thời gian</th>
-                                        <th style="padding: 12px;">ID Đối tượng</th>
-                                        <th style="padding: 12px;">Loại vi phạm</th>
-                                        <th style="padding: 12px;">Chi tiết</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="history-body">
-                                    <!-- Loaded via API -->
-                                </tbody>
-                            </table>
+                <!-- MẶC ĐỊNH GRID-1 (1 camera) -->
+                <div class="camera-grid grid-1" id="camera-grid-main">
+                    <div class="camera-card active" id="primary-cam-card">
+                        <div class="cam-info-top">
+                            <span class="cam-tag" id="current-stream-tag">LIVE STREAMING</span>
+                            <span class="ai-indicator active"></span>
+                        </div>
+                        <div class="stream-container">
+                            <img id="main-stream" src="/video_feed/1" class="stream-view">
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- Page: Settings -->
-            <div class="page-section" id="page-settings" style="display: none; padding: 24px;">
-                <div class="card glass">
-                    <div class="card-header">
-                        <h3><i data-lucide="settings"></i> Cấu hình Hệ thống</h3>
-                    </div>
-                    <div class="card-body" style="padding: 20px;">
-                        <p class="text-muted">Cài đặt ngưỡng AI và vùng ROI...</p>
-                    </div>
+                <!-- AI MODEL TOGGLES -->
+                <div class="ai-filter-bar glass">
+                    <label class="chip">
+                        <input type="checkbox" id="filter-helmet" checked>
+                        <span><i data-lucide="shield"></i> Mũ</span>
+                    </label>
+                    <label class="chip">
+                        <input type="checkbox" id="filter-vest" checked>
+                        <span><i data-lucide="shirt"></i> Áo</span>
+                    </label>
+                    <label class="chip">
+                        <input type="checkbox" id="filter-sign" checked>
+                        <span><i data-lucide="octagon"></i> Biển báo</span>
+                    </label>
+                    <label class="chip">
+                        <input type="checkbox" id="filter-pose" checked>
+                        <span><i data-lucide="accessibility"></i> Ngã</span>
+                    </label>
                 </div>
-            </div>
+            </section>
+
+            <!-- SECTION 2: SYSTEM -->
+            <section id="section-system" class="page-section">
+                <div class="section-header">HỆ THỐNG CAMERA</div>
+                <div id="system-cam-list" class="cam-list-container"></div>
+            </section>
+
+            <!-- SECTION 3: STATS (Lịch sử vi phạm từ DB) -->
+            <section id="section-stats" class="page-section">
+                <div class="section-header">LỊCH SỬ VI PHẠM</div>
+                <div class="table-wrapper glass">
+                    <table>
+                        <thead>
+                            <tr><th>Thời gian</th><th>Camera</th><th>Vi phạm</th></tr>
+                        </thead>
+                        <tbody id="stats-table-body"></tbody>
+                    </table>
+                </div>
+            </section>
         </main>
+
+        <nav class="bottom-nav glass">
+            <a href="#" class="nav-item active" data-target="home">
+                <i data-lucide="home"></i><span>Trang chủ</span>
+            </a>
+            <a href="#" class="nav-item" data-target="system">
+                <i data-lucide="video"></i><span>Hệ thống</span>
+            </a>
+            <div class="robot-central">
+                <div class="robot-circle" id="ai-status-indicator">
+                    <i data-lucide="bot"></i>
+                </div>
+            </div>
+            <a href="#" class="nav-item" data-target="stats">
+                <i data-lucide="bar-chart-3"></i><span>Thống kê</span>
+            </a>
+            <a href="#" class="nav-item" data-target="settings">
+                <i data-lucide="settings"></i><span>Cài đặt</span>
+            </a>
+        </nav>
     </div>
 
-    <!-- Audio Alerts -->
+    <!-- Audio alerts (phải có user interaction trước khi play) -->
     <audio id="audio-warning" src="warning.WAV" preload="auto"></audio>
-    <audio id="audio-alarm" src="alarm.WAV" preload="auto"></audio>
-
+    <audio id="audio-alarm"   src="alarm.WAV"   preload="auto"></audio>
     <script src="script.js"></script>
-    <script>
-        lucide.createIcons();
-    </script>
 </body>
-
 </html>

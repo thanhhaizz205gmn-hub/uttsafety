@@ -4,21 +4,19 @@ import math
 import time
 import asyncio
 import os
+import sqlite3
 from collections import defaultdict
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Query
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import shutil
 from ultralytics import YOLO
 import uvicorn
-import pandas as pd
-import sqlite3
-import base64
 import numpy as np
 from datetime import datetime
 
-app = FastAPI(title="Safety Monitor AI API")
+app = FastAPI(title="UTT SAFETY COMMAND CENTER")
 
 app.add_middleware(
     CORSMiddleware,
@@ -27,54 +25,35 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ----------------- CẤU HÌNH AI -----------------
-PPE_MODEL_PATH = 'models/best.onnx'
-CONE_MODEL_PATH = 'models/cone_sign.onnx'
-TUTHENGA_MODEL_PATH = 'models/tuthenga.onnx'
-VIDEO_PATH = '../video7.mp4'
+# ─── CẤU HÌNH AI ────────────────────────────────────────────────────────────
+PPE_MODEL_PATH  = '../../best.pt'
+CONE_MODEL_PATH = '../../cone_sign.pt'
+FALL_MODEL_PATH = '../../tuthenga.pt'
+VIDEO_PATH      = '../../video7.mp4'
 
-PPE_CHECK_TIME = 1
-VALID_IGNORE_TIME = 180
-ROI_VIOLATION_TIME = 5
-CONE_SCAN_INTERVAL = 60
-PIXEL_PER_METER = 50
-ROI_RADIUS_METER = 2
-PERSPECTIVE_RATIO = 0.4
-
-PPE_CONFIDENCE = 0.3
-CONE_CONFIDENCE = 0.5
-# CONFIDENECE của person
-PERSON_CONFIDENCE = 0.3
-
-# Global AI Variables
-print("[AI] Khởi tạo hệ thống - Đang nạp Model...")
-model_ppe = YOLO(PPE_MODEL_PATH)    # best.pt: Nhận diện Helmet + Vest
-model_cone = YOLO(CONE_MODEL_PATH)   # bestcone.pt: Nhận diện Cone/Sign để xác định ROI
-model_tuthenga = YOLO(TUTHENGA_MODEL_PATH)  # tuthenga.pt: Nhận diện tư thế ngã (Fall Detection)
-print("[AI] Model đã sẵn sàng! (PPE + Cone + Fall Detection)")
-
-cone_centers = []
-last_cone_scan_time = -CONE_SCAN_INTERVAL
-
-# Global State
 TEMP_DIR = "temp_videos"
 if not os.path.exists(TEMP_DIR):
     os.makedirs(TEMP_DIR)
 
-# SQLite Database Initialization
+print("[AI] Đang nạp hệ thống 3 Model...")
+model_ppe  = YOLO(PPE_MODEL_PATH)
+model_cone = YOLO(CONE_MODEL_PATH)
+model_fall = YOLO(FALL_MODEL_PATH)
+print("[AI] Sẵn sàng! (PPE + Cone/Sign + Fall Detection)")
+
+# ─── SQLite Database ─────────────────────────────────────────────────────────
 DB_PATH = "safety_logs.db"
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('''
+    conn.execute('''
         CREATE TABLE IF NOT EXISTS logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT,
-            track_id INTEGER,
-            violation_type TEXT,
-            detail TEXT,
-            image_path TEXT
+            track_id  INTEGER,
+            type      TEXT,
+            detail    TEXT,
+            camera    TEXT
         )
     ''')
     conn.commit()
@@ -82,332 +61,232 @@ def init_db():
 
 init_db()
 
-class PersonState:
-    def __init__(self):
-        self.missing_ppe_start_time = None
-        self.is_valid = True
-        self.last_full_ppe_time = -999999
-        self.last_ppe_warning_time = -999999
-        self.roi_intrusion_start_time = None
-        self.roi_violation_logged = False
+# ─── In-memory log (50 bản ghi gần nhất) ────────────────────────────────────
+system_logs  = []
+person_states = defaultdict(lambda: {"last_alert": 0})
 
-person_states = defaultdict(PersonState)
+def add_log(track_id: int, violation_type: str, detail: str = "", camera: str = "CAM 01"):
+    timestamp = datetime.now().strftime('%H:%M:%S')
 
-# Log event storage
-system_logs = []
-active_camera_name = "CAM 01"  # Default active camera label
-
-def add_log(track_id, violation_type, detail="", image_base64=None, camera_name=None):
-    global active_camera_name
-    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    cam_label = camera_name if camera_name else active_camera_name
-    
-    # Persist to SQLite
+    # Lưu vào SQLite
     try:
         conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO logs (timestamp, track_id, violation_type, detail, image_path)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (timestamp, track_id, violation_type, f"[{cam_label}] {detail}", "snapshot_embedded"))
+        conn.execute(
+            "INSERT INTO logs (timestamp, track_id, type, detail, camera) VALUES (?,?,?,?,?)",
+            (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), track_id, violation_type, detail, camera)
+        )
         conn.commit()
         conn.close()
     except Exception as e:
         print(f"[DB Error] {e}")
 
-    # Memory logs for real-time display (last 50)
+    # In-memory cache
     system_logs.insert(0, {
-        "time": timestamp.split(' ')[1],
-        "id": track_id,
-        "type": violation_type,
-        "detail": detail,
-        "camera": cam_label,
-        "image": image_base64
+        "time": timestamp, "id": track_id,
+        "type": violation_type, "detail": detail, "camera": camera
     })
     if len(system_logs) > 50:
         system_logs.pop()
 
-def is_center_inside(inner_box, outer_box):
-    ix1, iy1, ix2, iy2 = inner_box
-    ox1, oy1, ox2, oy2 = outer_box
-    cx = (ix1 + ix2) / 2
-    cy = (iy1 + iy2) / 2
-    return (ox1 <= cx <= ox2) and (oy1 <= cy <= oy2)
+# ─── IoU Helper ──────────────────────────────────────────────────────────────
+def get_iou(boxA, boxB):
+    ix1 = max(boxA[0], boxB[0]); iy1 = max(boxA[1], boxB[1])
+    ix2 = min(boxA[2], boxB[2]); iy2 = min(boxA[3], boxB[3])
+    if ix2 <= ix1 or iy2 <= iy1:
+        return 0
+    inter = (ix2 - ix1) * (iy2 - iy1)
+    areaA = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
+    return inter / float(areaA) if areaA > 0 else 0
 
-async def generate_frames(cam_id: str):
-    global model_ppe, model_cone, model_tuthenga, person_states, cone_centers, last_cone_scan_time, active_camera_name
-    
-    # Gán tên camera vào log
-    cam_name_map = {"1": "CAM 01 - Server", "2": "CAM 02 - Webcam"}
-    active_camera_name = cam_name_map.get(cam_id, f"CAM - {cam_id}")
-    
-    # RESET TOÀN BỘ TRẠNG THÁI KHI BẮT ĐẦU NGUỒN MỚI
-    cone_centers = [] 
-    last_cone_scan_time = -CONE_SCAN_INTERVAL
-    person_states.clear()
-    
-    # Mapping nguồn dữ liệu
+# ─── Frame Generator (FIX: bọc try/except CancelledError để không crash) ─────
+async def generate_frames(cam_id: str, active_filters: list):
     if cam_id == "1":
         source = VIDEO_PATH
     elif cam_id == "2":
-        source = 0  # Webcam
+        source = 0
     else:
-        # Kiểm tra file upload
-        full_path = os.path.join(TEMP_DIR, cam_id)
-        source = full_path if os.path.exists(full_path) else VIDEO_PATH
+        source = os.path.join(TEMP_DIR, cam_id)
 
     cap = cv2.VideoCapture(source)
+    if not cap.isOpened():
+        print(f"[CAM] Không mở được nguồn: {source}")
+        return
+
     fps = cap.get(cv2.CAP_PROP_FPS)
-    if fps == 0 or math.isnan(fps): fps = 30.0
+    if not fps or math.isnan(fps):
+        fps = 30.0
     interval = 1.0 / fps
 
-    frame_count = 0
+    show_helmet = 'helmet' in active_filters
+    show_vest   = 'vest'   in active_filters
+    show_sign   = 'sign'   in active_filters
+    show_fall   = 'pose'   in active_filters
 
-    while True:
-        t0 = time.time()
-        ret, frame = cap.read()
-        if not ret:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-            continue
-            
-        frame_count += 1
-        current_time = frame_count / fps 
+    try:
+        while True:
+            t0 = time.time()
+            ret, frame = cap.read()
 
-        # 1. QUÉT CONE/SIGN MỖI 60s (ROI BỀN VỮNG)
-        if current_time - last_cone_scan_time >= CONE_SCAN_INTERVAL:
-            results_cone = model_cone(frame, conf=CONE_CONFIDENCE, verbose=False)
-            new_centers = []
-            if results_cone[0].boxes is not None:
-                for box in results_cone[0].boxes:
-                    cls_name = model_cone.names[int(box.cls[0].item())].lower()
-                    if 'cone' in cls_name or 'sign' in cls_name:
-                        cx = (box.xyxy[0][0].item() + box.xyxy[0][2].item()) / 2
-                        cy = box.xyxy[0][3].item()
-                        new_centers.append([int(cx), int(cy)])
-            
-            # CHỈ CẬP NHẬT NẾU TÌM THẤY VẬT CẢN (TRÁNH BỊ CHE KHUẤT TẠM THỜI)
-            if len(new_centers) > 0:
-                cone_centers = new_centers
-                
-            last_cone_scan_time = current_time
+            # Video file kết thúc → quay vòng; Webcam mất → dừng
+            if not ret:
+                if cam_id == "2":
+                    break
+                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                continue
 
-        # Vẽ ROI Đa giác (Polygon) hoặc Vòng tròn (nếu ít cọc)
-        roi_violation_active = any(state.roi_violation_logged for state in person_states.values())
-        color = (0, 0, 255) if (roi_violation_active and int(time.time() * 5) % 2 == 0) else (0, 255, 255)
-
-        if len(cone_centers) >= 3:
-            overlay = frame.copy()
-            pts = np.array(cone_centers, np.int32)
-            pts = pts.reshape((-1, 1, 2))
-            
-            # Đổ màu đa giác
-            cv2.fillPoly(overlay, [pts], color)
-            cv2.addWeighted(overlay, 0.3, frame, 0.7, 0, frame)
-            # Vẽ đường viền đa giác
-            cv2.polylines(frame, [pts], True, color, 3)
-            
-            # Nhãn VÙNG NGUY HIỂM tại cọc đầu tiên
-            cv2.putText(frame, "[VUNG NGUY HIEM]", (cone_centers[0][0], cone_centers[0][1] - 15), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
-        elif len(cone_centers) > 0:
-            # Nếu ít hơn 3 cọc, vẽ vòng tròn quanh mỗi cọc để người dùng vẫn thấy ROI
-            roi_radius_pixel = int(ROI_RADIUS_METER * PIXEL_PER_METER)
-            for cx, cy in cone_centers:
-                cv2.circle(frame, (cx, cy), roi_radius_pixel, color, 2)
-                cv2.circle(frame, (cx, cy), 5, color, -1) # Chấm tâm cọc
-            cv2.putText(frame, "[ROI - CAN THEM COC]", (cone_centers[0][0], cone_centers[0][1] - 15), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-
-        # 2. FALL DETECTION (tuthenga model - mỗi 10 frame để tiết kiệm CPU)
-        if frame_count % 10 == 0:
-            results_fall = model_tuthenga(frame, conf=0.4, verbose=False)
-            if results_fall[0].boxes is not None:
-                for box in results_fall[0].boxes:
-                    cls_name = model_tuthenga.names[int(box.cls[0].item())].lower()
-                    if 'fall' in cls_name or 'down' in cls_name or 'nga' in cls_name:
-                        x1, y1, x2, y2 = [int(v) for v in box.xyxy[0].tolist()]
-                        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 128, 255), 3)
-                        cv2.putText(frame, "!!! TE NGA !!!", (x1, y1 - 15),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 128, 255), 2)
-                        add_log(0, "FALL", "Phát hiện người ngã")
-
-        # 3. TRACKING PPE
-        # Lấy ngưỡng thấp nhất để YOLO không bỏ sót bất kỳ box nào
-        min_conf = min(PPE_CONFIDENCE, PERSON_CONFIDENCE)
-        results_ppe = model_ppe.track(frame, conf=min_conf, persist=True, tracker="botsort.yaml", verbose=False)
-        
-        persons, helmets, vests = [], [], []
-        if results_ppe[0].boxes is not None:
-            for box in results_ppe[0].boxes:
-                cls_name = model_ppe.names[int(box.cls[0].item())].lower()
-                conf_val = float(box.conf[0].item())
-                
-                if 'person' in cls_name:
-                    # Lọc riêng ngưỡng cho Person
-                    if conf_val >= PERSON_CONFIDENCE:
-                        track_id = int(box.id[0].item()) if box.id is not None else None
-                        persons.append((box, track_id))
-                elif 'helmet' in cls_name or 'hat' in cls_name:
-                    # Lọc ngưỡng cho Helmet
-                    if conf_val >= PPE_CONFIDENCE:
-                        helmets.append(box)
-                elif 'vest' in cls_name or 'jacket' in cls_name:
-                    # Lọc ngưỡng cho PPE
-                    if conf_val >= PPE_CONFIDENCE:
-                        vests.append(box)
-
-        # Xử lý logic
-        for p_box, track_id in persons:
-            if track_id is None: continue
-            state = person_states[track_id]
-            px1, py1, px2, py2 = p_box.xyxy[0].tolist()
-            p_feet_x, p_feet_y = (px1 + px2) / 2, py2
-            
-            has_helmet = any(is_center_inside(h.xyxy[0].tolist(), [px1, py1, px2, py2]) for h in helmets)
-            has_vest = any(is_center_inside(v.xyxy[0].tolist(), [px1, py1, px2, py2]) for v in vests)
-
-            if has_helmet and has_vest:
-                state.last_full_ppe_time = current_time
-
-            if current_time - state.last_full_ppe_time < VALID_IGNORE_TIME:
-                has_helmet, has_vest = True, True
-
-            missing_items = []
-            if not has_helmet: missing_items.append("Helmet")
-            if not has_vest: missing_items.append("Vest")
-            missing_text = "No " + " & ".join(missing_items) if missing_items else ""
-
-            if has_helmet and has_vest:
-                state.missing_ppe_start_time = None
-                state.is_valid = True
-            else:
-                if state.missing_ppe_start_time is None:
-                    state.missing_ppe_start_time = current_time
-                if current_time - state.missing_ppe_start_time >= PPE_CHECK_TIME:
-                    state.is_valid = False
-                    if current_time - state.last_ppe_warning_time >= 10:
-                        add_log(track_id, "PPE", missing_text)
-                        state.last_ppe_warning_time = current_time
-
-            # Xâm nhập ROI Đa giác
-            in_roi = False
-            if len(cone_centers) >= 3:
-                pts = np.array(cone_centers, np.int32)
-                in_roi = cv2.pointPolygonTest(pts, (int(p_feet_x), int(p_feet_y)), False) >= 0
-            
-            # Crop Image for violation log (base64)
-            violation_snapshot = None
-            if not state.is_valid or (in_roi and state.roi_intrusion_start_time):
+            # ── 1. PPE & TRACKING ────────────────────────────────────────────
+            if show_helmet or show_vest:
                 try:
-                    h_img, w_img = frame.shape[:2]
-                    x1_c, y1_c = max(0, int(px1)-20), max(0, int(py1)-20)
-                    x2_c, y2_c = min(w_img, int(px2)+20), min(h_img, int(py2)+20)
-                    crop = frame[y1_c:y2_c, x1_c:x2_c]
-                    if crop.size > 0:
-                        _, buffer = cv2.imencode('.jpg', crop, [cv2.IMWRITE_JPEG_QUALITY, 50])
-                        violation_snapshot = base64.b64encode(buffer).decode('utf-8')
-                except: pass
+                    res_p = model_ppe.track(frame, conf=0.35, persist=True, verbose=False)
+                    persons, helmets, vests = [], [], []
+                    if res_p[0].boxes is not None:
+                        for b in res_p[0].boxes:
+                            cls = model_ppe.names[int(b.cls[0])].lower()
+                            box = b.xyxy[0].tolist()
+                            if 'person' in cls:
+                                tid = int(b.id[0]) if b.id is not None else 0
+                                persons.append({'box': box, 'id': tid})
+                            elif 'helmet' in cls and show_helmet:
+                                helmets.append(box)
+                                cv2.rectangle(frame,
+                                    (int(box[0]), int(box[1])), (int(box[2]), int(box[3])),
+                                    (0, 255, 0), 1)
+                            elif 'vest' in cls and show_vest:
+                                vests.append(box)
+                                cv2.rectangle(frame,
+                                    (int(box[0]), int(box[1])), (int(box[2]), int(box[3])),
+                                    (255, 230, 0), 1)
 
-            if not state.is_valid and in_roi:
-                if state.roi_intrusion_start_time is None:
-                    state.roi_intrusion_start_time = current_time
-                elif current_time - state.roi_intrusion_start_time >= ROI_VIOLATION_TIME:
-                    if not state.roi_violation_logged:
-                        add_log(track_id, "ROI", "Xâm nhập vùng cấm", violation_snapshot)
-                        state.roi_violation_logged = True
-            else:
-                state.roi_intrusion_start_time = None
-                state.roi_violation_logged = False
+                    for p in persons:
+                        box_p, tid = p['box'], p['id']
+                        has_h = any(get_iou(h, box_p) > 0.05 for h in helmets) if show_helmet else True
+                        has_v = any(get_iou(v, box_p) > 0.10 for v in vests)   if show_vest   else True
 
-            if not state.is_valid and current_time - state.last_ppe_warning_time >= 10:
-                 add_log(track_id, "PPE", missing_text, violation_snapshot)
-                 state.last_ppe_warning_time = current_time
+                        missing = []
+                        if show_helmet and not has_h: missing.append("Helmet")
+                        if show_vest   and not has_v: missing.append("Vest")
 
-            # Vẽ bounding box nâng cấp
-            color = (0, 255, 0) if state.is_valid else (0, 0, 255)
-            if state.is_valid:
-                label = f"ID:{track_id} | AN TOAN"
-                cv2.rectangle(frame, (int(px1), int(py1)), (int(px2), int(py2)), color, 2)
-                cv2.putText(frame, label, (int(px1), int(py1) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
-            else:
-                label = f"!! {missing_text.upper()} !!"
-                cv2.rectangle(frame, (int(px1), int(py1)), (int(px2), int(py2)), (0, 0, 255), 3)
-                # Chữ to rõ cho lỗi
-                cv2.putText(frame, label, (int(px1), int(py1) - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-                cv2.putText(frame, f"id:{track_id}", (int(px1), int(py1) - 40), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1)
+                        color = (0, 0, 255) if missing else (0, 255, 0)
+                        lw    = 3 if missing else 2
+                        cv2.rectangle(frame,
+                            (int(box_p[0]), int(box_p[1])), (int(box_p[2]), int(box_p[3])),
+                            color, lw)
 
-            if state.roi_violation_logged:
-                cv2.putText(frame, "!!! INTRUSION !!!", (int(px1), int(py1) - 65), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 3)
+                        if missing:
+                            label = f"!! NO {' & '.join(missing)} !!"
+                            cv2.putText(frame, label,
+                                (int(box_p[0]), int(box_p[1]) - 15),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+                            # ID nhỏ bên dưới label
+                            cv2.putText(frame, f"id:{tid}",
+                                (int(box_p[0]), int(box_p[1]) - 2),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
 
-        # Encode and stream
-        ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-        if ret:
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-                   
-        # Await frame time
-        elapsed = time.time() - t0
-        await asyncio.sleep(max(0.001, interval - elapsed))
+                            if time.time() - person_states[tid]["last_alert"] > 10:
+                                add_log(tid, "PPE",
+                                    f"ID:{tid} No {' & '.join(missing)}",
+                                    camera=f"CAM {cam_id}")
+                                person_states[tid]["last_alert"] = time.time()
+                        else:
+                            cv2.putText(frame, f"ID:{tid} AN TOAN",
+                                (int(box_p[0]), int(box_p[1]) - 8),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
+                except Exception as e:
+                    print(f"[PPE Error] {e}")
+
+            # ── 2. SIGN/CONE DETECTION ───────────────────────────────────────
+            if show_sign:
+                try:
+                    res_s = model_cone(frame, conf=0.5, verbose=False)
+                    if res_s[0].boxes is not None:
+                        for b in res_s[0].boxes:
+                            x1, y1, x2, y2 = map(int, b.xyxy[0])
+                            cls_name = model_cone.names[int(b.cls[0])]
+                            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 220, 220), 2)
+                            cv2.putText(frame, cls_name.upper(), (x1, y1 - 8),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 220, 220), 2)
+                except Exception as e:
+                    print(f"[CONE Error] {e}")
+
+            # ── 3. FALL DETECTION ────────────────────────────────────────────
+            if show_fall:
+                try:
+                    res_f = model_fall(frame, conf=0.35, verbose=False)
+                    if res_f[0].boxes is not None:
+                        for b in res_f[0].boxes:
+                            x1, y1, x2, y2 = map(int, b.xyxy[0])
+                            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 80, 255), 3)
+                            cv2.putText(frame, "!!! FALL !!!", (x1, y1 - 20),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 80, 255), 2)
+                            if time.time() - person_states[0]["last_alert"] > 5:
+                                add_log(0, "FALL", "Phát hiện người ngã",
+                                    camera=f"CAM {cam_id}")
+                                person_states[0]["last_alert"] = time.time()
+                except Exception as e:
+                    print(f"[FALL Error] {e}")
+
+            # ── Encode & Stream ──────────────────────────────────────────────
+            ret_enc, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            if ret_enc:
+                yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n'
+                       + buffer.tobytes() + b'\r\n')
+
+            elapsed = time.time() - t0
+            await asyncio.sleep(max(0.001, interval - elapsed))
+
+    except asyncio.CancelledError:
+        # Browser đóng kết nối → dừng generator sạch, KHÔNG crash server
+        print(f"[CAM {cam_id}] Client disconnected — stream stopped cleanly.")
+    except Exception as e:
+        print(f"[CAM {cam_id}] Stream error: {e}")
+    finally:
+        cap.release()
+
+# ─── API Endpoints ────────────────────────────────────────────────────────────
 @app.get("/video_feed/{cam_id}")
-async def video_feed(cam_id: str):
-    # cam_id có thể là "1", "2" hoặc tên file
-    return StreamingResponse(generate_frames(cam_id), media_type="multipart/x-mixed-replace; boundary=frame")
+async def video_feed(cam_id: str, filters: str = Query("helmet,vest,sign,pose")):
+    active_filters = [f.strip() for f in filters.split(",")]
+    return StreamingResponse(
+        generate_frames(cam_id, active_filters),
+        media_type="multipart/x-mixed-replace; boundary=frame"
+    )
 
 @app.post("/api/upload_video")
 async def upload_video(file: UploadFile = File(...)):
     try:
         file_path = os.path.join(TEMP_DIR, file.filename)
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        with open(file_path, "wb") as buf:
+            shutil.copyfileobj(file.file, buf)
         return {"filename": file.filename, "status": "success"}
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"message": str(e)})
-
-@app.get("/api/logs/history")
-async def get_log_history(limit: int = 100):
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM logs ORDER BY id DESC LIMIT ?", (limit,))
-        rows = cursor.fetchall()
-        conn.close()
-        return [dict(row) for row in rows]
     except Exception as e:
         return JSONResponse(status_code=500, content={"message": str(e)})
 
 @app.get("/api/cameras")
 async def get_cameras():
     return [
-        {"id": "1", "name": "CAM 01 - Khu vực A (Server)", "status": "online"},
-        {"id": "2", "name": "CAM 02 - Webcam Trực tiếp", "status": "available"},
-        {"id": "3", "name": "CAM 03 - Khu vực C", "status": "stopped"}
+        {"id": "1", "name": "CAM 01 - Server (Video)", "status": "online"},
+        {"id": "2", "name": "CAM 02 - Webcam Trực tiếp", "status": "available"}
     ]
-
-@app.get("/api/stats")
-async def get_stats():
-    ppe_count = len([l for l in system_logs if l['type'] == 'PPE'])
-    roi_count = len([l for l in system_logs if l['type'] == 'ROI'])
-    return {
-        "empty_spots": 128,
-        "occupancy_rate": 85,
-        "cameras": {"online": 1, "total": 3, "error": 0},
-        "yolo_ready": True,
-        "ppe_violations": ppe_count,
-        "roi_violations": roi_count,
-        "lots": [
-            {"id": 1, "name": "Khu A - Tầng 1", "total_spots": 50, "empty_spots": 12},
-            {"id": 2, "name": "Khu B - Tầng 1", "total_spots": 40, "empty_spots": 5},
-            {"id": 3, "name": "Khu C - Tầng 2", "total_spots": 60, "empty_spots": 45}
-        ]
-    }
 
 @app.get("/api/logs")
 async def get_logs():
     return {"logs": system_logs}
 
-# Phục vụ các file tĩnh (html, css, js)
+@app.get("/api/logs/history")
+async def get_log_history(limit: int = 100):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM logs ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"message": str(e)})
+
+# ─── Static Files ─────────────────────────────────────────────────────────────
 current_dir = os.path.dirname(os.path.abspath(__file__))
 app.mount("/", StaticFiles(directory=current_dir, html=True), name="static")
 

@@ -1,309 +1,213 @@
 /* ═══════════════════════════════════════════════════════════
-   SMARTPARK AI — script.js (Safety Monitoring Logic)
+   UTT AI SAFETY COMMAND CENTER - script.js
    ═══════════════════════════════════════════════════════════ */
 
 document.addEventListener("DOMContentLoaded", () => {
 
-    // ─── Clock ────────────────────────────────────────────────────────────
-    function updateClock() {
-        const now = new Date();
-        const timeStr = now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-        const el = document.getElementById('current-time');
-        if (el) el.textContent = timeStr;
-    }
-    setInterval(updateClock, 1000);
-    updateClock();
+    const appState = {
+        activePage: 'home',
+        notifCount: 0,
+        lastLogTime: "",
+        activeCamera: { id: '1', name: 'CAM 01 - Server' }
+    };
 
-    // ─── SPA Navigation ──────────────────────────────────────────────────
-    const navItems = document.querySelectorAll('.sidebar nav ul li');
+    // --- DOM Elements ---
+    const navItems = document.querySelectorAll('.nav-item');
     const sections = document.querySelectorAll('.page-section');
+    const notifBadge = document.getElementById('notif-count');
+    const notifBtn = document.getElementById('btn-notifications');
+    const statsTableBody = document.getElementById('stats-table-body');
+    const mainStreamImg = document.getElementById('main-stream');
+    const activeCamLabel = document.getElementById('active-cam-label');
+    const currentStreamTag = document.getElementById('current-stream-tag');
+    const primaryCamCard = document.getElementById('primary-cam-card');
+    const fileUpload = document.getElementById('file-upload');
+    const ppeAudio   = document.getElementById('audio-warning');
+    const alarmAudio  = document.getElementById('audio-alarm');
 
-    navItems.forEach(item => {
-        item.addEventListener('click', () => {
-            const pageId = item.getAttribute('data-page');
+    // --- Unlock Audio (Browser autoplay policy) ---
+    let audioUnlocked = false;
+    function unlockAudio() {
+        if (audioUnlocked) return;
+        [ppeAudio, alarmAudio].forEach(a => {
+            if (!a) return;
+            a.volume = 0;
+            a.play().then(() => { a.pause(); a.currentTime = 0; a.volume = 1; }).catch(() => {});
+        });
+        audioUnlocked = true;
+        document.removeEventListener('click', unlockAudio);
+        document.removeEventListener('touchstart', unlockAudio);
+    }
+    document.addEventListener('click',      unlockAudio, { once: true });
+    document.addEventListener('touchstart', unlockAudio, { once: true });
 
-            // Update Sidebar UI
-            navItems.forEach(nav => nav.classList.remove('active'));
-            item.classList.add('active');
+    // --- AI Filter Management ---
+    const filterCheckboxes = ['helmet', 'vest', 'sign', 'pose'].map(f => document.getElementById(`filter-${f}`));
 
-            // Switch Sections
-            sections.forEach(section => {
-                section.style.display = 'none';
-                section.classList.remove('active');
-            });
-            const targetSection = document.getElementById(`page-${pageId}`);
-            if (targetSection) {
-                targetSection.style.display = 'block';
-                setTimeout(() => targetSection.classList.add('active'), 10);
+    function getActiveFilters() {
+        return filterCheckboxes
+            .filter(cb => cb.checked)
+            .map(cb => cb.id.replace('filter-', ''))
+            .join(',');
+    }
 
-                // If analytics page, fetch history
-                if (pageId === 'analytics') fetchHistory();
-            }
+    function updateStreamUrl() {
+        const filters = getActiveFilters();
+        const camId = appState.activeCamera.id;
+        mainStreamImg.src = `/video_feed/${camId}?filters=${filters}`;
+    }
+
+    filterCheckboxes.forEach(cb => {
+        cb.addEventListener('change', () => {
+            updateStreamUrl();
         });
     });
 
-    const sidebar = document.getElementById('sidebar');
-    const toggle = document.getElementById('sidebar-toggle');
-    if (toggle) {
-        toggle.addEventListener('click', () => {
-            sidebar.classList.toggle('collapsed');
-            const icon = toggle.querySelector('i');
-            if (sidebar.classList.contains('collapsed')) icon.setAttribute('data-lucide', 'chevron-right');
-            else icon.setAttribute('data-lucide', 'chevron-left');
-            lucide.createIcons();
+    // --- Navigation ---
+    navItems.forEach(item => {
+        item.addEventListener('click', (e) => {
+            e.preventDefault();
+            const target = item.getAttribute('data-target');
+            if (target === 'settings') return;
+
+            navItems.forEach(n => n.classList.remove('active'));
+            item.classList.add('active');
+            
+            sections.forEach(s => s.classList.remove('active'));
+            const targetSection = document.getElementById(`section-${target}`);
+            if (targetSection) targetSection.classList.add('active');
+            
+            appState.activePage = target;
+            if (target === 'system') loadCameraList();
+            if (target === 'stats')  loadDbHistory();
         });
+    });
+
+    // --- System Camera List ---
+    async function loadCameraList() {
+        const container = document.getElementById('system-cam-list');
+        if (!container) return;
+        container.innerHTML = '<p style="padding:20px; color:var(--text-muted)">Đang tải danh sách...</p>';
+        try {
+            const res = await fetch('/api/cameras');
+            const cameras = await res.json();
+            container.innerHTML = cameras.map(cam => `
+                <div class="cam-list-item glass" onclick="switchCamera('${cam.id}', '${cam.name}')">
+                    <div class="ai-indicator ${cam.status === 'online' ? 'active' : ''}"></div>
+                    <div class="cam-info"><strong>${cam.name}</strong><br><small>${cam.status.toUpperCase()}</small></div>
+                    <i data-lucide="chevron-right" style="margin-left:auto; color:var(--text-muted)"></i>
+                </div>
+            `).join('');
+            lucide.createIcons();
+        } catch (e) { container.innerHTML = '<p>Lỗi kết nối.</p>'; }
     }
 
-    // ─── DOM Elements ─────────────────────────────────────────────────────
-    const mainVideo = document.getElementById('main-video');
-    const videoContainer = document.getElementById('video-container');
-    const roiOverlay = document.getElementById('roi-alert-overlay');
-    const violationList = document.getElementById('violation-list');
-    const violationCount = document.getElementById('violation-count');
-    const alertBadge = document.getElementById('alert-badge');
-    const aiRecs = document.getElementById('ai-recs');
+    window.switchCamera = (id, name) => {
+        appState.activeCamera = { id, name };
+        activeCamLabel.textContent = name.toUpperCase();
+        currentStreamTag.textContent = id === '2' ? 'WEBCAM' : 'LIVE MONITORING';
+        updateStreamUrl();
+        document.querySelector('.nav-item[data-target="home"]').click();
+    };
 
-    // ─── Audio Alerts ─────────────────────────────────────────────────────
-    const ppeAudio = document.getElementById('audio-warning');
-    const roiAudio = document.getElementById('audio-alarm');
-    let lastAudioTime = 0;
-
-    // ─── Real-time API Logic ──────────────────────────────────────────────
-    let lastLogTime = "";
-    let isAlertActive = false;
-
-    async function fetchSystemData() {
+    // --- Real-time Logs & Alerts ---
+    async function fetchLogs() {
         try {
-            // 1. Fetch Stats
-            const statsRes = await fetch('/api/stats');
-            const stats = await statsRes.json();
-
-            const onlineCount = stats.cameras.online;
-            document.getElementById('cam-online-count').textContent = onlineCount;
-            document.getElementById('cam-counter-text').textContent = `${onlineCount}/${stats.cameras.total}`;
-
-            // ROI Status update
-            const roiEl = document.getElementById('roi-status');
-            if (roiEl) {
-                roiEl.textContent = stats.roi_violations > 0 ? 'CẢNH BÁO' : 'An toàn';
-                roiEl.className = stats.roi_violations > 0 ? 'text-danger' : 'text-success';
-            }
-
-            // YOLO Badge Pulse logic
-            const yoloBadge = document.getElementById('yolo-badge');
-            const yoloText = document.getElementById('yolo-status-text');
-            if (onlineCount > 0) {
-                yoloBadge.classList.add('pulse');
-                yoloText.textContent = "AI MONITORING";
-            } else {
-                yoloBadge.classList.remove('pulse');
-                yoloText.textContent = "YOLO READY";
-            }
-
-            // 2. Fetch Logs
-            const logsRes = await fetch('/api/logs');
-            const data = await logsRes.json();
+            const res = await fetch('/api/logs');
+            const data = await res.json();
             const logs = data.logs || [];
 
             if (logs.length > 0) {
-                const latestLog = logs[0];
-                if (latestLog.time !== lastLogTime) {
-                    lastLogTime = latestLog.time;
-                    processNewAlert(latestLog, logs);
+                if (logs[0].time !== appState.lastLogTime) {
+                    appState.lastLogTime = logs[0].time;
+                    processNotification(logs[0]);
+                } else {
+                    // Nếu không có log mới trong 3 giây, tắt hiệu ứng nháy đỏ
+                    setTimeout(clearAlertEffects, 3000);
                 }
-                updateViolationUI(logs);
-            } else {
-                resetAlertStates();
+                updateStatsTable(logs);
             }
-        } catch (e) {
-            console.error("Connection error:", e);
-        }
+        } catch (e) {}
     }
 
-    function processNewAlert(log, allLogs) {
-        // Visual Alert
-        videoContainer.classList.add('alert-active');
-        alertBadge.textContent = allLogs.length;
+    function processNotification(log) {
+        const detail = log.detail.toLowerCase();
+        const isHelmet = detail.includes('helmet') || detail.includes('mu');
+        const isVest = detail.includes('vest') || detail.includes('ao');
+        const isSign = log.type === 'ROI' || detail.includes('sign') || detail.includes('cone');
+        const isFall = log.type === 'FALL';
 
-        // Audio Alert with 10s cooldown
-        const now = Date.now();
-        if (now - lastAudioTime > 10000) {
-            if (log.type === 'PPE') {
-                ppeAudio.play().catch(e => console.log("Audio blocked", e));
-            } else if (log.type === 'ROI') {
-                roiAudio.play().catch(e => console.log("Audio blocked", e));
-            }
-            lastAudioTime = now;
-        }
+        let allowed = false;
+        if (isHelmet && document.getElementById('filter-helmet').checked) allowed = true;
+        if (isVest && document.getElementById('filter-vest').checked) allowed = true;
+        if (isSign && document.getElementById('filter-sign').checked) allowed = true;
+        if (isFall && document.getElementById('filter-pose').checked) allowed = true;
 
-        // ROI Overlay
-        if (log.type === 'ROI' || allLogs.some(l => l.type === 'ROI')) {
-            roiOverlay.classList.add('active');
-        } else {
-            roiOverlay.classList.remove('active');
-        }
+        if (!allowed) return;
 
-        // Auto reset visual alert after 3 seconds
-        setTimeout(() => {
-            videoContainer.classList.remove('alert-active');
-        }, 3000);
+        // --- CẢNH BÁO TRỰC TIẾP TRÊN MÀN HÌNH ---
+        if (primaryCamCard) primaryCamCard.classList.add('flash-red');
+        if (notifBtn) notifBtn.classList.add('bell-shake');
 
-        // Update AI Suggestion - Automated Cycle
-        aiRecs.innerHTML = `
-            <div class="ai-msg">
-                <div class="ai-msg-content">
-                    <p><strong>PHÁT HIỆN VI PHẠM:</strong> ${log.type === 'PPE' ? 'Lỗi bảo hộ' : 'Xâm nhập vùng cấm'} - ID: ${log.id}</p>
-                    <p style="color: var(--success); font-size: 0.75rem; margin-top: 4px;">
-                        Trạng thái: Đã gửi thông báo đến App Kỹ sư trưởng & Đã kích hoạt loa cảnh báo hiện trường.
-                    </p>
-                </div>
-            </div>
-        `;
-        lucide.createIcons();
+        appState.notifCount++;
+        notifBadge.textContent = appState.notifCount;
+        notifBadge.classList.add('pulse');
+
+        if (log.type === 'FALL') alarmAudio.play().catch(() => {});
+        else ppeAudio.play().catch(() => {});
+        
+        if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+
+        // Tự động tắt hiệu ứng sau 3 giây nếu không có lỗi tiếp theo
+        setTimeout(clearAlertEffects, 3000);
     }
 
-    function updateViolationUI(logs) {
-        violationCount.textContent = logs.length;
+    function clearAlertEffects() {
+        if (primaryCamCard) primaryCamCard.classList.remove('flash-red');
+        if (notifBtn) notifBtn.classList.remove('bell-shake');
+        if (notifBadge) notifBadge.classList.remove('pulse');
+    }
 
-        const listHtml = logs.slice(0, 10).map((log, idx) => `
-            <div class="violation-item ${idx === 0 ? 'active new-violation-flash' : ''}">
-                <div style="display: flex; align-items: center;">
-                    ${log.image ? `<img src="data:image/jpeg;base64,${log.image}" class="violation-avatar">` : '<div class="violation-avatar" style="background:rgba(255,255,255,0.05); display:flex; align-items:center; justify-content:center;"><i data-lucide="user" style="width:16px;"></i></div>'}
-                    <div class="info">
-                        <span class="time">${log.time}</span>
-                        <span class="id">ID: ${log.id}</span>
-                    </div>
-                </div>
-                <span class="type">${log.type}: ${log.detail}</span>
-            </div>
+    function updateStatsTable(logs) {
+        if (!statsTableBody) return;
+        statsTableBody.innerHTML = logs.slice(0, 15).map(log => `
+            <tr>
+                <td>${log.time}</td>
+                <td style="font-weight:600">${log.camera || 'CAM 01'}</td>
+                <td><span class="${log.type === 'FALL' ? 'badge-danger' : 'badge-warning'}">${log.type}: ${log.detail}</span></td>
+            </tr>
         `).join('');
-
-        violationList.innerHTML = listHtml;
-        lucide.createIcons();
     }
 
-    async function fetchHistory() {
+    // --- File Upload ---
+    fileUpload.addEventListener('change', async () => {
+        if (!fileUpload.files.length) return;
+        const formData = new FormData();
+        formData.append('file', fileUpload.files[0]);
         try {
-            const res = await fetch('/api/logs/history?limit=50');
-            const logs = await res.json();
-            const historyBody = document.getElementById('history-body');
-            if (historyBody) {
-                historyBody.innerHTML = logs.map(log => `
-                    <tr>
-                        <td>${log.id}</td>
-                        <td>${log.timestamp}</td>
-                        <td>${log.track_id}</td>
-                        <td><span class="badge-${log.violation_type === 'ROI' ? 'danger' : 'warning'}" style="padding: 2px 8px; border-radius: 4px;">${log.violation_type}</span></td>
-                        <td>${log.detail}</td>
-                    </tr>
-                `).join('');
-            }
-        } catch (e) {
-            console.error("History fetch error:", e);
-        }
-    }
-
-    function resetAlertStates() {
-        videoContainer.classList.remove('alert-active');
-        roiOverlay.classList.remove('active');
-        violationList.innerHTML = '<p class="text-muted" style="text-align:center; padding:20px;">Hệ thống đang quét dữ liệu...</p>';
-        aiRecs.innerHTML = '<p class="text-muted">Không có cảnh báo khẩn cấp.</p>';
-        alertBadge.textContent = "0";
-    }
-
-    setInterval(fetchSystemData, 1000);
-
-    // ─── Camera Controls ──────────────────────────────────────────────────
-    const btnStart = document.getElementById('btn-start-cam');
-    const btnStop = document.getElementById('btn-stop-cam');
-    const camSourceSelect = document.getElementById('cam-source-select');
-    const fileUploadGroup = document.getElementById('file-upload-group');
-    const videoUploadInput = document.getElementById('video-upload-input');
-    const btnBrowseFile = document.getElementById('btn-browse-file');
-    const selectedFilenameLabel = document.getElementById('selected-filename');
-
-    // Toggle File Upload UI
-    camSourceSelect.addEventListener('change', () => {
-        if (camSourceSelect.value === '3') {
-            fileUploadGroup.style.display = 'flex';
-        } else {
-            fileUploadGroup.style.display = 'none';
-        }
+            const res = await fetch('/api/upload_video', { method: 'POST', body: formData });
+            const data = await res.json();
+            if (data.status === 'success') { switchCamera(data.filename, `Video: ${data.filename}`); }
+        } catch (e) { alert("Lỗi tải video."); }
     });
 
-    // Browse File
-    btnBrowseFile.addEventListener('click', () => {
-        videoUploadInput.click();
-    });
-
-    videoUploadInput.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (file) {
-            selectedFilenameLabel.textContent = file.name;
-        }
-    });
-
-    if (btnStart) {
-        btnStart.addEventListener('click', async () => {
-            const selectedMode = camSourceSelect.value;
-            let finalSource = selectedMode;
-
-            // Nếu là chế độ tải lên video
-            if (selectedMode === '3') {
-                const file = videoUploadInput.files[0];
-                if (!file) {
-                    alert("Vui lòng chọn tệp video trước!");
-                    return;
-                }
-
-                // 1. Upload File
-                btnStart.disabled = true;
-                btnStart.innerHTML = `<i data-lucide="loader-2" class="spin"></i> Đang tải lên...`;
-                lucide.createIcons();
-
-                const formData = new FormData();
-                formData.append('file', file);
-
-                try {
-                    const uploadRes = await fetch('/api/upload_video', {
-                        method: 'POST',
-                        body: formData
-                    });
-                    const uploadData = await uploadRes.json();
-                    if (uploadData.status === 'success') {
-                        finalSource = uploadData.filename;
-                    } else {
-                        throw new Error(uploadData.message);
-                    }
-                } catch (err) {
-                    alert("Lỗi tải lên: " + err.message);
-                    btnStart.disabled = false;
-                    btnStart.innerHTML = `<i data-lucide="play"></i> Kết nối`;
-                    lucide.createIcons();
-                    return;
-                }
-            }
-
-            // 2. Start Stream
-            mainVideo.src = `/video_feed/${finalSource}`;
-
-            // UI Feedback
-            btnStart.disabled = true;
-            btnStart.innerHTML = `<i data-lucide="loader-2" class="spin"></i> Đang chạy...`;
-            btnStop.disabled = false;
-            lucide.createIcons();
-        });
+    // --- Load lịch sử từ SQLite DB ---
+    async function loadDbHistory() {
+        try {
+            const res  = await fetch('/api/logs/history?limit=100');
+            const rows = await res.json();
+            if (!statsTableBody || !Array.isArray(rows)) return;
+            statsTableBody.innerHTML = rows.map(r => `
+                <tr>
+                    <td>${r.timestamp || r.time || ''}</td>
+                    <td style="font-weight:600">${r.camera || 'CAM 01'}</td>
+                    <td><span class="${r.type === 'FALL' ? 'badge-danger' : 'badge-warning'}">
+                        ID:${r.track_id ?? r.id ?? '?'} &nbsp; ${r.type}: ${r.detail}
+                    </span></td>
+                </tr>`).join('');
+        } catch (e) { console.error('DB history error', e); }
     }
 
-    if (btnStop) {
-        btnStop.addEventListener('click', () => {
-            mainVideo.src = '';
-
-            // UI Feedback
-            btnStart.disabled = false;
-            btnStart.innerHTML = `<i data-lucide="play"></i> Kết nối`;
-            btnStop.disabled = true;
-            lucide.createIcons();
-        });
-    }
+    setInterval(fetchLogs, 1500);
+    lucide.createIcons();
 });
