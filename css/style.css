@@ -307,3 +307,64 @@ tr:hover td { background:var(--primary-light); }
 
 /* ── Fullscreen Camera ── */
 .camera-card.enlarged { position:fixed; top:0; left:0; right:0; bottom:0; z-index:2000; border-radius:0; aspect-ratio:auto; margin:0; }
+
+/* ══ ALARM SYSTEM (kế thừa từ giaodienvtv) ══════════════════════════════ */
+
+/* Nháy đỏ viền camera khi có vi phạm */
+.flash-red {
+    border: 3px solid var(--danger) !important;
+    animation: flash-red-border 0.6s infinite alternate;
+}
+@keyframes flash-red-border {
+    from { box-shadow: 0 0 5px rgba(255, 59, 48, 0.3); }
+    to   { box-shadow: 0 0 25px rgba(255, 59, 48, 0.9), inset 0 0 15px rgba(255, 59, 48, 0.2); }
+}
+
+/* Chuông thông báo rung lắc */
+.bell-shake {
+    animation: bell-shake 0.5s cubic-bezier(.36,.07,.19,.97) infinite;
+}
+@keyframes bell-shake {
+    0%  { transform: rotate(0deg); }
+    20% { transform: rotate(15deg); }
+    40% { transform: rotate(-15deg); }
+    60% { transform: rotate(10deg); }
+    80% { transform: rotate(-10deg); }
+    100%{ transform: rotate(0deg); }
+}
+
+/* Badge count nháy lớn */
+.badge-count.pulse {
+    animation: badge-pulse 0.5s infinite alternate;
+}
+@keyframes badge-pulse {
+    from { transform: scale(1); }
+    to   { transform: scale(1.5); }
+}
+
+/* Hiệu ứng nháy nền cho dòng log mới */
+.new-log-flash {
+    animation: log-highlight 2.5s ease-out;
+}
+@keyframes log-highlight {
+    0%   { background: rgba(0, 122, 255, 0.15); }
+    100% { background: transparent; }
+}
+
+/* Settings Switch */
+.setting-item { display:flex; justify-content:space-between; align-items:center; padding:16px; margin-bottom:10px; }
+.setting-info { display:flex; align-items:center; gap:12px; font-weight:600; font-size:.9rem; }
+.switch { position:relative; display:inline-block; width:48px; height:26px; }
+.switch input { opacity:0; width:0; height:0; }
+.slider { position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background:#ccc; border-radius:26px; transition:.3s; }
+.slider:before { position:absolute; content:""; height:20px; width:20px; left:3px; bottom:3px; background:white; border-radius:50%; transition:.3s; }
+input:checked + .slider { background:var(--primary); }
+input:checked + .slider:before { transform:translateX(22px); }
+
+/* Camera List (Section 2) */
+.cam-list-vertical { padding:10px; }
+.cam-list-item { display:flex; align-items:center; gap:15px; padding:16px; margin-bottom:10px; border-radius:16px; cursor:pointer; transition:.2s; }
+.cam-list-item:hover { background:var(--primary-light); }
+.cam-info { flex:1; }
+.cam-info strong { font-size:.85rem; }
+.cam-info small { color:var(--text-muted); font-size:.7rem; }

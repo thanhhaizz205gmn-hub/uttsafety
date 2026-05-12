@@ -411,13 +411,23 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // ─── Violation Checker & Notification ────────────────────────────────
+    // ─── Spatial Overlap Ratio (kế thừa từ giaodienvtv) ─────────────────
+    function getOverlapRatio(boxA, boxB) {
+        const x1 = Math.max(boxA.x1, boxB.x1);
+        const y1 = Math.max(boxA.y1, boxB.y1);
+        const x2 = Math.min(boxA.x2, boxB.x2);
+        const y2 = Math.min(boxA.y2, boxB.y2);
+        if (x2 <= x1 || y2 <= y1) return 0;
+        const interArea = (x2 - x1) * (y2 - y1);
+        const areaA = (boxA.x2 - boxA.x1) * (boxA.y2 - boxA.y1);
+        return areaA > 0 ? interArea / areaA : 0;
+    }
+
+    // ─── Violation Checker (Spatial IoU Matching) ─────────────────────────
     let lastAlertTime = 0;
 
     function checkViolations(ppeResults, fallResults) {
         const now = Date.now();
-        if (now - lastAlertTime < 5000) return; // Cooldown 5 giây
-
         const filters = {
             helmet: document.getElementById('filter-helmet')?.checked,
             vest:   document.getElementById('filter-vest')?.checked,
@@ -429,59 +439,93 @@ document.addEventListener("DOMContentLoaded", () => {
         const vests   = ppeResults.filter(d => d.className === 'vest');
         const falls   = fallResults.filter(d => d.className === 'fall' || d.className === 'down');
 
-        let violationType = null, violationDetail = null;
+        let violatorCount = 0;
+        let violationDetail = null;
 
-        // Kiểm tra mũ bảo hiểm
-        if (filters.helmet && persons.length > 0 && helmets.length < persons.length) {
-            violationType = 'PPE';
-            violationDetail = 'Thiếu Helmet';
-        }
-        // Kiểm tra áo phản quang
-        else if (filters.vest && persons.length > 0 && vests.length < persons.length) {
-            violationType = 'PPE';
-            violationDetail = 'Thiếu Vest';
-        }
+        // ─── Logic đối soát từng người theo tọa độ (kế thừa giaodienvtv) ────
+        persons.forEach(person => {
+            // Kiểm tra: có mũ nào đè lên người này không?
+            const hasHelmet = helmets.some(h => getOverlapRatio(h, person) > 0.05);
+            // Kiểm tra: có áo nào đè lên người này không?
+            const hasVest   = vests.some(v => getOverlapRatio(v, person) > 0.10);
+
+            if (filters.helmet && !hasHelmet) {
+                violatorCount++;
+                if (!violationDetail) violationDetail = { type: 'PPE', detail: 'Thiếu Helmet' };
+            } else if (filters.vest && !hasVest) {
+                violatorCount++;
+                if (!violationDetail) violationDetail = { type: 'PPE', detail: 'Thiếu Vest' };
+            }
+        });
+
         // Kiểm tra ngã
-        else if (filters.pose && falls.length > 0) {
-            violationType = 'FALL';
-            violationDetail = 'Phát hiện người ngã';
+        if (filters.pose && falls.length > 0) {
+            violatorCount += falls.length;
+            violationDetail = { type: 'FALL', detail: `Phát hiện ${falls.length} người ngã` };
         }
 
-        if (violationType) {
-            lastAlertTime = now;
-            triggerAlert(violationType, violationDetail);
+        if (violatorCount > 0 && violationDetail) {
+            if (now - lastAlertTime > 5000) { // Cooldown 5 giây
+                lastAlertTime = now;
+                triggerAlert(violationDetail.type, violationDetail.detail, violatorCount);
+            }
+            // Luôn bật flash-red trong suốt thời gian vi phạm
+            activateAlarmVisuals();
+        } else {
+            // Tắt hiệu ứng khi không còn vi phạm
+            clearAlarmVisuals();
         }
     }
 
-    function triggerAlert(type, detail) {
-        // 1. Tăng badge chuông
-        appState.notifCount++;
+    // ─── Visual Alarm Effects (flash-red + bell-shake) ───────────────────
+    function activateAlarmVisuals() {
+        const camCard = document.getElementById('primary-cam-card');
+        const notifBtn = document.getElementById('btn-notifications');
+        if (camCard) camCard.classList.add('flash-red');
+        if (notifBtn) notifBtn.classList.add('bell-shake');
+        if (notifBadge) notifBadge.classList.add('pulse');
+    }
+
+    function clearAlarmVisuals() {
+        const camCard = document.getElementById('primary-cam-card');
+        const notifBtn = document.getElementById('btn-notifications');
+        if (camCard) camCard.classList.remove('flash-red');
+        if (notifBtn) notifBtn.classList.remove('bell-shake');
+        if (notifBadge) notifBadge.classList.remove('pulse');
+    }
+
+    function triggerAlert(type, detail, count = 1) {
+        // 1. Tăng badge chuông theo số người vi phạm
+        appState.notifCount += count;
         if (notifBadge) {
             notifBadge.textContent = appState.notifCount;
-            notifBadge.style.transform = 'scale(1.6)';
-            setTimeout(() => notifBadge.style.transform = 'scale(1)', 300);
         }
 
-        // 2. Chèn vào bảng thống kê
-        const now = new Date();
-        const timeStr = now.toTimeString().slice(0, 8);
-        const row = { time: timeStr, camera: appState.activeCamera.name, type, detail };
-        insertViolationRow(row);
+        // 2. Kích hoạt hiệu ứng nháy đỏ + rung chuông
+        activateAlarmVisuals();
 
-        // 3. Phát âm thanh
+        // 3. Rung điện thoại (Haptic)
+        if (navigator.vibrate) navigator.vibrate([300, 100, 300]);
+
+        // 4. Phát âm thanh cảnh báo
         if (type === 'FALL') alarmAudio?.play().catch(() => {});
         else ppeAudio?.play().catch(() => {});
 
-        // 4. Robot blink
+        // 5. Chèn vào bảng thống kê
+        const timeStr = new Date().toTimeString().slice(0, 8);
+        insertViolationRow({ time: timeStr, camera: appState.activeCamera.name, type, detail });
+
+        // 6. Robot blink đỏ → xanh sau 2s
         if (aiStatusBtn) {
             aiStatusBtn.style.background = 'var(--danger, #ff3b30)';
             setTimeout(() => aiStatusBtn.style.background = 'var(--success, #34c759)', 2000);
         }
 
-        // 5. Push notification
+        // 7. Push notification (nếu được cấp quyền)
         if (Notification.permission === 'granted') {
             new Notification(`🚨 ${type} - ${appState.activeCamera.name}`, {
-                body: detail, icon: 'assets/icons/icon-192x192.png'
+                body: `${detail} (${count} người)`,
+                icon: 'assets/icons/icon-192x192.png'
             });
         }
     }
