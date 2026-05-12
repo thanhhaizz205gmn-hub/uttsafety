@@ -99,8 +99,6 @@ document.addEventListener("DOMContentLoaded", () => {
         if (window.tf) {
             tf.disposeVariables(); // Clear TFJS variables
         }
-        // Manual nulling for large objects
-        // currentInferenceData = null;
     }
 
     // Call loadModel immediately
@@ -270,13 +268,30 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
+    // ─── Hàm dừng tất cả luồng Camera ─────────────────────────────────────
+    function stopAllCameraTracks() {
+        const activeStream = videoWebcam.srcObject || mainVideo.srcObject;
+        if (activeStream && activeStream.getTracks) {
+            const tracks = activeStream.getTracks();
+            tracks.forEach(track => {
+                track.stop();
+                console.log("Track stopped:", track.label);
+            });
+            videoWebcam.srcObject = null;
+            mainVideo.srcObject = null;
+        }
+    }
+
     // ─── Hàm mở Camera chuẩn iOS (Bắt buộc gọi từ sự kiện Click) ──────────
     async function initIOSCamera() {
+        // 1. Giải phóng tài nguyên cũ trước khi yêu cầu mới (Rất quan trọng cho iOS)
+        stopAllCameraTracks();
+
         const constraints = {
             video: {
                 facingMode: 'environment',
-                width: { ideal: 1280 },
-                height: { ideal: 720 }
+                width: { ideal: 640 },
+                height: { ideal: 480 }
             },
             audio: false
         };
@@ -300,9 +315,21 @@ document.addEventListener("DOMContentLoaded", () => {
             
             document.getElementById('yolo-status-text').textContent = "LOCAL CAM ACTIVE";
         } catch (err) {
+            console.error("Camera Error:", err);
             let msg = "Lỗi Camera: " + err.name;
-            if (err.name === 'NotAllowedError') msg = "❌ Bạn cần cấp quyền Camera trong Cài đặt Safari.";
+            
+            if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+                msg = "❌ Camera đang bị ứng dụng khác sử dụng (FaceTime, Zoom...) hoặc bị kẹt. Vui lòng đóng các app chạy ngầm và nhấn Thử lại.";
+            } else if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                msg = "❌ Bạn đã chặn quyền Camera. Vui lòng vào Cài đặt -> Safari -> Camera để cho phép.";
+            }
+            
             alert(msg);
+            
+            // Cơ chế thử lại: Khôi phục trạng thái nút bấm
+            btnStart.disabled = false;
+            btnStart.innerHTML = `<i data-lucide="refresh-cw"></i> Thử lại`;
+            lucide.createIcons();
         }
     }
 
@@ -358,11 +385,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (btnStop) {
         btnStop.addEventListener('click', () => {
-            const activeStream = videoWebcam.srcObject;
-            if (activeStream) {
-                activeStream.getTracks().forEach(track => track.stop());
-                videoWebcam.srcObject = null;
-            }
+            stopAllCameraTracks();
             mainVideo.src = '';
             mainVideo.style.display = 'block';
             videoWebcam.style.opacity = '0';
