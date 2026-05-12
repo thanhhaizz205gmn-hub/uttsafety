@@ -78,17 +78,13 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
             yoloBadge.textContent = "LOADING MODELS...";
             
-            // Note: .pt files usually need conversion to .onnx to run in browser.
-            // Using ONNX Runtime for best performance on iOS Safari.
-            // Path: ./models/best.pt (placeholder for converted onnx)
-            
-            /* 
+            // Khởi tạo phiên làm việc với ONNX Runtime Web
+            // Sử dụng WASM làm backend chính cho Safari/iOS
             aiSession = await ort.InferenceSession.create('./models/best.onnx', { 
                 executionProviders: ['wasm'], 
                 graphOptimizationLevel: 'all' 
             });
-            */
-            
+
             console.log("AI Models loaded successfully into RAM.");
             yoloBadge.textContent = "MODEL LOADED";
             yoloBadge.parentElement.classList.add('pulse');

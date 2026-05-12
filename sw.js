@@ -8,8 +8,8 @@ const ASSETS = [
   './assets/icons/apple-touch-icon.png',
   './assets/icons/icon-192x192.png',
   './assets/icons/icon-512x512.png',
-  './models/best.pt',
-  './models/bestcone.pt',
+  './models/best.onnx',
+  './models/bestcone.onnx',
   'https://unpkg.com/lucide@latest',
   'https://cdn.jsdelivr.net/npm/chart.js'
 ];
