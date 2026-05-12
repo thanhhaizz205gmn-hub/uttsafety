@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════
-   UTT AI SAFETY — script.js (Safety Compliance Logic)
+   UTT AI SAFETY — script.js (Advanced Compliance Monitoring)
    ═══════════════════════════════════════════════════════════ */
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -8,10 +8,10 @@ document.addEventListener("DOMContentLoaded", () => {
         notifCount: 0,
         filters: { helmet: true, vest: true, pose: true },
         isCameraActive: false,
-        activeCamera: { id: '1', name: 'CAM 01' },
-        lastLogTime: "",
+        activeCamera: { id: '1', name: 'Hệ thống A1' },
         modelLoaded: false,
-        inferenceRunning: false
+        inferenceRunning: false,
+        lastAlertTime: 0
     };
 
     let sessionPPE = null, sessionFall = null, animFrameId = null;
@@ -23,6 +23,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const inputCtx = inputCanvas.getContext('2d');
 
     const notifBadge     = document.getElementById('notif-count');
+    const notifBtn       = document.getElementById('btn-notifications');
     const yoloStatusText = document.getElementById('yolo-status-text');
     const videoWebcam    = document.getElementById('webcam');
     const aiStatusBtn    = document.getElementById('ai-status-indicator');
@@ -40,16 +41,21 @@ document.addEventListener("DOMContentLoaded", () => {
         overlayCtx = overlayCanvas.getContext('2d');
     }
 
-    // ─── Hàm kiểm tra giao nhau (Matching PPE to Person) ──────────────────
-    function isInside(boxA, boxB) {
-        // Kiểm tra xem tâm của boxA có nằm trong boxB không
-        const cx = (boxA.x1 + boxA.x2) / 2;
-        const cy = (boxA.y1 + boxA.y2) / 2;
-        return (cx >= boxB.x1 && cx <= boxB.x2 && cy >= boxB.y1 && cy <= boxB.y2);
+    // ─── PHÉP TOÁN SO KHỚP VỊ TRÍ (OVERLAP LOGIC) ────────────────────────
+    function getOverlapRatio(boxA, boxB) {
+        const x1 = Math.max(boxA.x1, boxB.x1);
+        const y1 = Math.max(boxA.y1, boxB.y1);
+        const x2 = Math.min(boxA.x2, boxB.x2);
+        const y2 = Math.min(boxA.y2, boxB.y2);
+        
+        if (x2 <= x1 || y2 <= y1) return 0;
+        const intersectionArea = (x2 - x1) * (y2 - y1);
+        const areaA = (boxA.x2 - boxA.x1) * (boxA.y2 - boxA.y1);
+        return intersectionArea / areaA; 
     }
 
-    // ─── Logic đối soát an toàn ──────────────────────────────────────────
-    function checkViolations(ppeResults, fallResults) {
+    // ─── KIỂM TRA TUÂN THỦ AN TOÀN (COMPLIANCE CHECK) ────────────────────
+    function checkSafetyCompliance(ppeResults, fallResults) {
         const filters = {
             helmet: document.getElementById('filter-helmet')?.checked,
             vest:   document.getElementById('filter-vest')?.checked,
@@ -61,94 +67,97 @@ document.addEventListener("DOMContentLoaded", () => {
         const vests   = ppeResults.filter(d => d.className === 'vest');
         const falls   = fallResults.filter(d => d.className === 'fall' || d.className === 'down');
 
-        let frameViolators = 0;
-        let violationDetails = [];
+        let currentViolators = 0;
+        let reasons = [];
 
         persons.forEach(person => {
-            let hasHelmet = helmets.some(h => isInside(h, person));
-            let hasVest = vests.some(v => isInside(v, person));
+            let hasHelmet = helmets.some(h => getOverlapRatio(h, person) > 0.1);
+            let hasVest   = vests.some(v => getOverlapRatio(v, person) > 0.1);
 
-            let pViolation = false;
             if (filters.helmet && !hasHelmet) {
-                pViolation = true;
-                violationDetails.push("Thiếu Mũ");
+                currentViolators++;
+                reasons.push("Không đội mũ");
+            } else if (filters.vest && !hasVest) {
+                currentViolators++;
+                reasons.push("Không mặc áo");
             }
-            if (filters.vest && !hasVest) {
-                pViolation = true;
-                violationDetails.push("Thiếu Áo");
-            }
-
-            if (pViolation) frameViolators++;
         });
 
-        // Kiểm tra ngã (Fall)
         if (filters.pose && falls.length > 0) {
-            frameViolators += falls.length;
-            violationDetails.push("Phát hiện NGÃ");
+            currentViolators += falls.length;
+            reasons.push("PHÁT HIỆN NGÃ");
         }
 
-        if (frameViolators > 0) {
-            triggerVisualAlarm(frameViolators, violationDetails[0]);
+        if (currentViolators > 0) {
+            triggerSafetyAlarm(currentViolators, reasons[0]);
         } else {
-            stopVisualAlarm();
+            clearSafetyAlarm();
         }
     }
 
-    let alarmInterval = null;
-    function triggerVisualAlarm(count, detail) {
+    function triggerSafetyAlarm(count, detail) {
+        const now = Date.now();
         const camCard = document.getElementById('primary-cam-card');
-        if (!camCard.classList.contains('flash-red')) {
-            camCard.classList.add('flash-red');
-            
-            // Rung điện thoại (Haptic)
-            if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+        
+        // Hiệu ứng nháy đỏ Camera
+        if (camCard) camCard.classList.add('flash-red');
 
-            // Cập nhật số lượng thông báo
+        // Hiệu ứng Chuông rung
+        if (notifBtn) notifBtn.classList.add('bell-shake');
+
+        // Tần suất báo động (Cooldown 3s)
+        if (now - appState.lastAlertTime > 3000) {
+            appState.lastAlertTime = now;
             appState.notifCount += count;
             if (notifBadge) {
                 notifBadge.textContent = appState.notifCount;
                 notifBadge.classList.add('pulse');
             }
 
-            // Phát âm thanh
+            // Âm thanh & Rung
             if (detail.includes("NGÃ")) alarmAudio?.play().catch(() => {});
             else ppeAudio?.play().catch(() => {});
+            if (navigator.vibrate) navigator.vibrate([300, 100, 300]);
 
-            // Log
-            insertViolationRow({
-                time: new Date().toTimeString().slice(0, 8),
-                camera: appState.activeCamera.name,
-                type: detail.includes("NGÃ") ? "FALL" : "PPE",
-                detail: `${detail} (${count} người)`
-            });
+            // Ghi log
+            insertLog(detail, count);
         }
     }
 
-    function stopVisualAlarm() {
+    function clearSafetyAlarm() {
         const camCard = document.getElementById('primary-cam-card');
         if (camCard) camCard.classList.remove('flash-red');
+        if (notifBtn) notifBtn.classList.remove('bell-shake');
         if (notifBadge) notifBadge.classList.remove('pulse');
     }
 
-    // ─── Inference Loop (Giữ nguyên cấu trúc, chỉ thay đổi logic check) ───
-    async function startInferenceLoop() {
+    function insertLog(detail, count) {
+        const tbody = document.getElementById('stats-table-body');
+        if (!tbody) return;
+        const tr = document.createElement('tr');
+        tr.className = 'new-log-flash';
+        tr.innerHTML = `
+            <td>${new Date().toLocaleTimeString('vi-VN')}</td>
+            <td>${appState.activeCamera.name}</td>
+            <td><span class="badge-danger">${detail} (${count})</span></td>
+        `;
+        tbody.prepend(tr);
+        if (tbody.rows.length > 15) tbody.deleteRow(15);
+    }
+
+    // ─── Inference Engine ────────────────────────────────────────────────
+    async function startInference() {
         if (appState.inferenceRunning) return;
         appState.inferenceRunning = true;
-        let frameSkip = 0;
-        const SKIP_FRAMES = 3;
-
-        async function detectFrame() {
-            if (!appState.isCameraActive || !appState.modelLoaded) return;
-            frameSkip++;
-            if (frameSkip < SKIP_FRAMES) { animFrameId = requestAnimationFrame(detectFrame); return; }
-            frameSkip = 0;
-
+        
+        async function run() {
+            if (!appState.isCameraActive) return;
             try {
                 const rect = videoWebcam.getBoundingClientRect();
                 if (overlayCanvas) { overlayCanvas.width = rect.width; overlayCanvas.height = rect.height; }
 
                 inputCtx.drawImage(videoWebcam, 0, 0, 640, 640);
-                const tensor = preprocessFrame(inputCtx.getImageData(0, 0, 640, 640));
+                const tensor = preprocess(inputCtx.getImageData(0, 0, 640, 640));
 
                 const [ppeOut, fallOut] = await Promise.all([
                     sessionPPE.run({ [sessionPPE.inputNames[0]]: tensor }),
@@ -158,23 +167,20 @@ document.addEventListener("DOMContentLoaded", () => {
                 const ppeResults = postprocess(ppeOut[sessionPPE.outputNames[0]].data, PPE_CLASSES);
                 const fallResults = postprocess(fallOut[sessionFall.outputNames[0]].data, FALL_CLASSES);
 
-                drawDetections([...ppeResults, ...fallResults]);
-                checkViolations(ppeResults, fallResults);
-
-            } catch (e) { console.error(e); }
-            animFrameId = requestAnimationFrame(detectFrame);
+                draw(ppeResults, fallResults);
+                checkSafetyCompliance(ppeResults, fallResults);
+            } catch (e) {}
+            animFrameId = requestAnimationFrame(run);
         }
-        animFrameId = requestAnimationFrame(detectFrame);
+        run();
     }
 
-    // ─── Các hàm bổ trợ (Preprocess, Postprocess, Draw...) ───────────────
-    function preprocessFrame(imageData) {
-        const { data, width, height } = imageData;
+    function preprocess(imgData) {
         const float32 = new Float32Array(3 * 640 * 640);
         for (let i = 0; i < 640 * 640; i++) {
-            float32[i] = data[i * 4] / 255.0;
-            float32[i + 640 * 640] = data[i * 4 + 1] / 255.0;
-            float32[i + 2 * 640 * 640] = data[i * 4 + 2] / 255.0;
+            float32[i] = imgData.data[i * 4] / 255;
+            float32[i + 640*640] = imgData.data[i * 4 + 1] / 255;
+            float32[i + 2*640*640] = imgData.data[i * 4 + 2] / 255;
         }
         return new ort.Tensor('float32', float32, [1, 3, 640, 640]);
     }
@@ -182,19 +188,19 @@ document.addEventListener("DOMContentLoaded", () => {
     function postprocess(rawData, classNames) {
         const boxes = [];
         for (let i = 0; i < 8400; i++) {
-            let maxConf = 0, maxClass = 0;
+            let maxC = 0, maxI = 0;
             for (let c = 0; c < classNames.length; c++) {
-                const conf = rawData[(4 + c) * 8400 + i];
-                if (conf > maxConf) { maxConf = conf; maxClass = c; }
+                const s = rawData[(4 + c) * 8400 + i];
+                if (s > maxC) { maxC = s; maxI = c; }
             }
-            if (maxConf < 0.4) continue;
+            if (maxC < 0.4) continue;
             const cx = rawData[0 * 8400 + i], cy = rawData[1 * 8400 + i], w = rawData[2 * 8400 + i], h = rawData[3 * 8400 + i];
-            boxes.push({ x1: (cx - w / 2) / 640, y1: (cy - h / 2) / 640, x2: (cx + w / 2) / 640, y2: (cy + h / 2) / 640, conf: maxConf, className: classNames[maxClass] });
+            boxes.push({ x1: (cx - w/2)/640, y1: (cy - h/2)/640, x2: (cx + w/2)/640, y2: (cy + h/2)/640, conf: maxC, className: classNames[maxI] });
         }
-        return nms(boxes, 0.45);
+        return nms(boxes);
     }
 
-    function nms(boxes, iouThresh) {
+    function nms(boxes) {
         boxes.sort((a, b) => b.conf - a.conf);
         const kept = [];
         const suppressed = new Set();
@@ -205,67 +211,41 @@ document.addEventListener("DOMContentLoaded", () => {
                 const a = boxes[i], b = boxes[j];
                 const ix1 = Math.max(a.x1, b.x1), iy1 = Math.max(a.y1, b.y1), ix2 = Math.min(a.x2, b.x2), iy2 = Math.min(a.y2, b.y2);
                 const inter = Math.max(0, ix2 - ix1) * Math.max(0, iy2 - iy1);
-                const iou = inter / ((a.x2 - a.x1) * (a.y2 - a.y1) + (b.x2 - b.x1) * (b.y2 - b.y1) - inter);
-                if (iou > iouThresh) suppressed.add(j);
+                const iou = inter / ((a.x2 - a.x1)*(a.y2 - a.y1) + (b.x2 - b.x1)*(b.y2 - b.y1) - inter);
+                if (iou > 0.45) suppressed.add(j);
             }
         }
         return kept;
     }
 
-    function drawDetections(detections) {
+    function draw(ppe, fall) {
         if (!overlayCtx) return;
         const W = overlayCanvas.width, H = overlayCanvas.height;
         overlayCtx.clearRect(0, 0, W, H);
-        detections.forEach(det => {
-            const x = det.x1 * W, y = det.y1 * H, w = (det.x2 - det.x1) * W, h = (det.y2 - det.y1) * H;
-            overlayCtx.strokeStyle = det.className === 'person' ? '#007aff' : '#34c759';
-            if (det.className.includes('fall')) overlayCtx.strokeStyle = '#ff3b30';
+        [...ppe, ...fall].forEach(d => {
+            overlayCtx.strokeStyle = d.className === 'person' ? '#007aff' : (d.className.includes('fall') ? '#ff3b30' : '#34c759');
             overlayCtx.lineWidth = 2;
-            overlayCtx.strokeRect(x, y, w, h);
+            overlayCtx.strokeRect(d.x1 * W, d.y1 * H, (d.x2 - d.x1) * W, (d.y2 - d.y1) * H);
         });
     }
 
-    function insertViolationRow(log) {
-        const tbody = document.getElementById('stats-table-body');
-        if (!tbody) return;
-        const tr = document.createElement('tr');
-        tr.className = 'new-log-flash';
-        tr.innerHTML = `<td>${log.time}</td><td>${log.camera}</td><td><span class="${log.type === 'FALL' ? 'badge-fall' : 'badge-danger'}">${log.type}: ${log.detail}</span></td>`;
-        tbody.prepend(tr);
-        if (tbody.rows.length > 15) tbody.deleteRow(15);
-    }
-
-    // ─── Init ─────────────────────────────────────────────────────────────
-    async function loadModels() {
-        yoloStatusText.textContent = "LOADING...";
+    // ─── App Bootstrap ───────────────────────────────────────────────────
+    async function init() {
+        yoloStatusText.textContent = "NẠP MODEL...";
         try {
             sessionPPE = await ort.InferenceSession.create('./models/best.onnx', { executionProviders: ['wasm'] });
             sessionFall = await ort.InferenceSession.create('./models/tuthenga.onnx', { executionProviders: ['wasm'] });
             appState.modelLoaded = true;
-            yoloStatusText.textContent = "AI READY";
-            startCamera();
-        } catch (e) { yoloStatusText.textContent = "ERROR"; }
-    }
-
-    async function startCamera() {
-        try {
+            yoloStatusText.textContent = "HỆ THỐNG SẴN SÀNG";
+            
             const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: 640, height: 480 } });
             videoWebcam.srcObject = stream;
             await videoWebcam.play();
             appState.isCameraActive = true;
             setupOverlayCanvas();
-            startInferenceLoop();
-        } catch (e) { alert("Camera Error"); }
+            startInference();
+        } catch (e) { yoloStatusText.textContent = "LỖI HỆ THỐNG"; }
     }
 
-    // Nav & Grid
-    const navItemsNav = document.querySelectorAll('.nav-item[data-target]');
-    navItemsNav.forEach(item => {
-        item.addEventListener('click', () => {
-            document.querySelectorAll('.page-section').forEach(s => s.classList.remove('active'));
-            document.getElementById(`section-${item.getAttribute('data-target')}`).classList.add('active');
-        });
-    });
-
-    loadModels();
+    init();
 });

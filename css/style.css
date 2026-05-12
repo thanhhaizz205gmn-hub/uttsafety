@@ -100,26 +100,12 @@ body {
 }
 
 /* ── Camera Grid System ── */
-.grid-controls {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px 20px;
-    margin: 10px 0;
-    font-size: 0.85rem;
-}
-
 .camera-grid {
     display: grid;
     gap: 10px;
     padding: 0 10px;
     transition: all 0.5s ease;
 }
-
-.grid-1 { grid-template-columns: 1fr; }
-.grid-2 { grid-template-columns: 1fr; }
-.grid-4 { grid-template-columns: repeat(2, 1fr); }
-.grid-6, .grid-8 { grid-template-columns: repeat(2, 1fr); }
 
 .camera-card {
     background: var(--card-bg);
@@ -133,7 +119,6 @@ body {
 }
 
 .stream-container { width: 100%; height: 100%; background: #000; position: relative; }
-.stream-view { width: 100%; height: 100%; object-fit: cover; }
 
 .cam-info-top {
     position: absolute;
@@ -152,15 +137,7 @@ body {
     backdrop-filter: blur(5px);
 }
 
-.btn-expand {
-    background: rgba(0,0,0,0.4);
-    border: none;
-    color: white;
-    padding: 4px;
-    border-radius: 4px;
-}
-
-/* ── Bottom Nav Refined ── */
+/* ── Bottom Nav ── */
 .bottom-nav {
     position: fixed;
     bottom: 0; left: 0; right: 0;
@@ -196,69 +173,35 @@ body {
     color: white;
     box-shadow: 0 8px 20px rgba(0, 122, 255, 0.3);
     border: 4px solid var(--bg-color);
-    transition: background 0.3s;
 }
 
-/* ── Glass Effect ── */
-.glass {
-    background: var(--card-bg);
-    border: 1px solid var(--border-color);
-    border-radius: 16px;
+/* ── ALARM SYSTEM ── */
+.flash-red {
+    border: 3px solid var(--danger) !important;
+    animation: flash-red-border 0.6s infinite alternate;
 }
 
-@media (min-width: 768px) {
-    .grid-2 { grid-template-columns: repeat(2, 1fr); }
-    .grid-4 { grid-template-columns: repeat(2, 1fr); }
-    .grid-6 { grid-template-columns: repeat(3, 1fr); }
-    .grid-8 { grid-template-columns: repeat(4, 1fr); }
+@keyframes flash-red-border {
+    from { box-shadow: 0 0 5px rgba(255, 59, 48, 0.3); background: var(--card-bg); }
+    to { box-shadow: 0 0 20px rgba(255, 59, 48, 0.8), inset 0 0 15px rgba(255, 59, 48, 0.2); background: rgba(255, 59, 48, 0.05); }
 }
 
-/* ── AI Status Indicator Dot ── */
-.ai-indicator { width:10px; height:10px; border-radius:50%; display:inline-block; flex-shrink:0; }
-.ai-indicator.active  { background:var(--success); box-shadow:0 0 6px var(--success); animation:pulse-dot 2s infinite; }
-.ai-indicator.offline { background:var(--text-muted); }
-.ai-indicator.error   { background:var(--danger); box-shadow:0 0 6px var(--danger); }
-@keyframes pulse-dot { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
+.bell-shake {
+    animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+}
 
-/* ── Violation Badges ── */
-.badge-warning { background:#fff3cd; color:#856404; padding:2px 8px; border-radius:6px; font-size:.7rem; font-weight:600; }
-.badge-danger  { background:#f8d7da; color:#721c24; padding:2px 8px; border-radius:6px; font-size:.7rem; font-weight:600; }
-.badge-fall    { background:#ff9500; color:white; padding:2px 8px; border-radius:6px; font-size:.7rem; font-weight:700; }
+@keyframes shake {
+    10%, 90% { transform: translate3d(-1px, 0, 0) rotate(-10deg); }
+    20%, 80% { transform: translate3d(2px, 0, 0) rotate(10deg); }
+    30%, 50%, 70% { transform: translate3d(-4px, 0, 0) rotate(-15deg); }
+    40%, 60% { transform: translate3d(4px, 0, 0) rotate(15deg); }
+}
 
 /* ── Stats Table ── */
 .table-wrapper { overflow-x:auto; padding:5px; }
 table { width:100%; border-collapse:collapse; font-size:.8rem; }
-th { text-align:left; font-size:.7rem; color:var(--text-muted); text-transform:uppercase; padding:8px 10px; }
-td { padding:12px 10px; border-top:1px solid var(--border-color); }
-tr:hover td { background:var(--primary-light); }
-
-/* ── App Layout ── */
-.app-main { padding:0 12px 160px; }
-.section-header { padding:14px 20px; margin-bottom:10px; font-size:1rem; font-weight:700; }
-
-/* ── Grid Controls ── */
-.grid-controls { display:flex; justify-content:space-between; align-items:center; padding:10px 16px; margin:8px 0; font-size:.85rem; font-weight:500; }
-.mini-select { padding:8px 12px; border-radius:10px; border:1px solid var(--border-color); background:var(--bg-color); color:var(--text-main); font-size:.8rem; font-weight:600; }
-
-/* ── AI Filter Bar ── */
-.ai-filter-bar { position:fixed; bottom:calc(68px + var(--safe-bottom)); left:12px; right:12px; display:flex; justify-content:space-around; padding:10px; border-radius:18px; z-index:900; box-shadow:0 4px 20px rgba(0,0,0,.1); }
-.chip input { display:none; }
-.chip span { display:flex; align-items:center; gap:5px; padding:6px 12px; border-radius:10px; font-size:.72rem; font-weight:600; background:var(--card-bg); color:var(--text-muted); border:1.5px solid var(--border-color); cursor:pointer; transition:all .2s; }
-.chip input:checked + span { background:var(--primary); color:white; border-color:var(--primary); }
-
-/* ── Fullscreen Camera ── */
-.camera-card.enlarged { position:fixed; top:0; left:0; right:0; bottom:0; z-index:2000; border-radius:0; aspect-ratio:auto; margin:0; }
-
-/* ── Alarm Animations ── */
-.flash-red {
-    animation: flash-red-bg 0.5s infinite alternate;
-    border: 3px solid var(--danger) !important;
-}
-
-@keyframes flash-red-bg {
-    from { background: var(--card-bg); }
-    to { background: rgba(255, 59, 48, 0.2); }
-}
+td { padding:12px 10px; border-top: 1px solid var(--border-color); }
+.badge-danger { background:#f8d7da; color:#721c24; padding:2px 8px; border-radius:6px; font-weight:700; font-size:0.7rem; }
 
 .new-log-flash {
     animation: log-highlight 2s ease-out;
@@ -268,3 +211,9 @@ tr:hover td { background:var(--primary-light); }
     0% { background: var(--primary-light); }
     100% { background: transparent; }
 }
+
+/* ── Filter Bar ── */
+.ai-filter-bar { position:fixed; bottom:calc(68px + var(--safe-bottom)); left:12px; right:12px; display:flex; justify-content:space-around; padding:10px; border-radius:18px; z-index:900; box-shadow: 0 4px 20px rgba(0,0,0,0.1); background: var(--header-bg); backdrop-filter: blur(10px); }
+.chip input { display:none; }
+.chip span { display:flex; align-items:center; gap:5px; padding:6px 12px; border-radius:10px; font-size:.72rem; font-weight:600; background:var(--card-bg); color:var(--text-muted); border:1.5px solid var(--border-color); cursor:pointer; }
+.chip input:checked + span { background:var(--primary); color:white; border-color:var(--primary); }
