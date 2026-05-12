@@ -35,10 +35,16 @@ self.addEventListener('activate', (event) => {
 
 // Fetch Event
 self.addEventListener('fetch', (event) => {
+  const url = new URL(event.request.url);
+  
+  // BYPASS cache for dynamic API and Camera Stream
+  if (url.pathname.includes('/api/') || url.pathname.includes('/video_feed/')) {
+    return event.respondWith(fetch(event.request));
+  }
+
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       return cachedResponse || fetch(event.request).catch(() => {
-        // Fallback or handle offline
         return null;
       });
     })

@@ -248,17 +248,21 @@ document.addEventListener("DOMContentLoaded", () => {
             const selectedMode = camSourceSelect.value;
             let finalSource = selectedMode;
 
+            // Reset UI
+            mainVideo.style.display = 'block';
+            localVideo.style.display = 'none';
+
             // Nếu là chế độ tải lên video
             if (selectedMode === '3') {
                 const file = videoUploadInput.files[0];
                 if (!file) {
-                    alert("Vui lòng chọn tệp video trước!");
+                    alert("⚠️ Vui lòng chọn tệp video trước khi nhấn Kết nối!");
                     return;
                 }
 
                 // 1. Upload File
                 btnStart.disabled = true;
-                btnStart.innerHTML = `<i data-lucide="loader-2" class="spin"></i> Đang tải lên...`;
+                btnStart.innerHTML = `<i data-lucide="loader-2" class="spin"></i> Đang xử lý...`;
                 lucide.createIcons();
 
                 const formData = new FormData();
@@ -269,6 +273,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         method: 'POST',
                         body: formData
                     });
+                    if (!uploadRes.ok) throw new Error("Server error: " + uploadRes.status);
                     const uploadData = await uploadRes.json();
                     if (uploadData.status === 'success') {
                         finalSource = uploadData.filename;
@@ -276,7 +281,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         throw new Error(uploadData.message);
                     }
                 } catch (err) {
-                    alert("Lỗi tải lên: " + err.message);
+                    alert("❌ Lỗi tải lên: " + err.message);
                     btnStart.disabled = false;
                     btnStart.innerHTML = `<i data-lucide="play"></i> Kết nối`;
                     lucide.createIcons();
@@ -289,22 +294,49 @@ document.addEventListener("DOMContentLoaded", () => {
                 // Local Camera Access (Directly from Browser/PWA)
                 if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
                     try {
-                        const stream = await navigator.mediaDevices.getUserMedia({ 
-                            video: { facingMode: 'environment' }, // Use back camera
+                        // iOS Safari requires specific constraints
+                        const constraints = {
+                            video: { 
+                                facingMode: 'environment', // Use back camera
+                                width: { ideal: 1280 },
+                                height: { ideal: 720 }
+                            },
                             audio: false 
-                        });
-                        mainVideo.srcObject = stream;
-                        mainVideo.play();
+                        };
+
+                        const stream = await navigator.mediaDevices.getUserMedia(constraints);
                         
-                        // Notify backend to stop processing if needed, 
-                        // or just run client-side AI if implemented.
-                        // For now, we show the local stream.
+                        // Switch display elements
+                        mainVideo.style.display = 'none';
+                        localVideo.style.display = 'block';
+                        
+                        // Set stream to video element
+                        localVideo.srcObject = stream;
+                        
+                        // iOS requires playsinline, muted, and autoplay (handled in HTML)
+                        // but calling play() explicitly is safer
+                        try {
+                            await localVideo.play();
+                        } catch (e) {
+                            console.error("Autoplay failed", e);
+                            alert("Nhấn vào màn hình để phát video camera.");
+                        }
+                        
                         document.getElementById('yolo-status-text').textContent = "LOCAL CAM ACTIVE";
                     } catch (err) {
-                        alert("Không thể truy cập camera: " + err.message);
+                        let msg = "Không thể truy cập camera.";
+                        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                            msg = "❌ Bạn đã chặn quyền truy cập Camera. Vui lòng vào Cài đặt -> Safari -> Camera để cho phép.";
+                        } else if (err.name === 'NotFoundError') {
+                            msg = "❌ Không tìm thấy thiết bị camera.";
+                        }
+                        alert(msg);
+                        console.error(err);
+                        return;
                     }
                 } else {
-                    alert("Trình duyệt không hỗ trợ truy cập camera.");
+                    alert("Trình duyệt này không hỗ trợ MediaDevices API.");
+                    return;
                 }
             } else {
                 // Remote Stream (Python Backend MJPEG)
@@ -323,12 +355,16 @@ document.addEventListener("DOMContentLoaded", () => {
     if (btnStop) {
         btnStop.addEventListener('click', () => {
             // Stop local stream if exists
-            if (mainVideo.srcObject) {
-                const tracks = mainVideo.srcObject.getTracks();
+            const activeStream = localVideo.srcObject || mainVideo.srcObject;
+            if (activeStream) {
+                const tracks = activeStream.getTracks();
                 tracks.forEach(track => track.stop());
+                localVideo.srcObject = null;
                 mainVideo.srcObject = null;
             }
             mainVideo.src = '';
+            mainVideo.style.display = 'block';
+            localVideo.style.display = 'none';
 
             // UI Feedback
             btnStart.disabled = false;
@@ -337,4 +373,23 @@ document.addEventListener("DOMContentLoaded", () => {
             lucide.createIcons();
         });
     }
+
+    // ─── Sidebar Mobile Toggle ────────────────────────────────────────────
+    const mobileToggle = document.createElement('button');
+    mobileToggle.className = 'sidebar-mobile-toggle';
+    mobileToggle.innerHTML = '<i data-lucide="menu"></i>';
+    document.body.appendChild(mobileToggle);
+    lucide.createIcons();
+
+    mobileToggle.addEventListener('click', () => {
+        const sidebar = document.getElementById('sidebar');
+        sidebar.classList.toggle('mobile-active');
+        const icon = mobileToggle.querySelector('i');
+        if (sidebar.classList.contains('mobile-active')) {
+            icon.setAttribute('data-lucide', 'x');
+        } else {
+            icon.setAttribute('data-lucide', 'menu');
+        }
+        lucide.createIcons();
+    });
 });

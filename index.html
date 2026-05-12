@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>UTT AI Safety Monitoring</title>
     
     <!-- PWA Settings -->
@@ -188,6 +188,7 @@
                             </div>
                             <div class="viewport-box" id="cam-viewer-box">
                                 <img id="main-video" src="" alt="Vui lòng nhấn Kết nối">
+                                <video id="local-video" playsinline autoplay muted style="display:none; width: 100%; height: 100%; object-fit: cover;"></video>
 
                                 <div id="roi-alert-overlay" class="roi-overlay">
                                     <div class="roi-alert-content">
