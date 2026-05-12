@@ -661,15 +661,53 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // ─── Init ─────────────────────────────────────────────────────────────
-    function init() {
-        initGrid();
-        if ('Notification' in window && Notification.permission === 'default') {
-            Notification.requestPermission();
+    // ─── File Upload (Browser AI Inference) ──────────────────────────────
+    if (fileUpload) {
+        fileUpload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            stopAllTracks();
+            const url = URL.createObjectURL(file);
+            mainVideo.src = url;
+            mainVideo.style.display = 'block';
+            videoWebcam.style.display = 'none';
+            mainVideo.onloadeddata = () => {
+                mainVideo.play();
+                appState.isCameraActive = true;
+                setupOverlayCanvas();
+                startInferenceLoopForVideo();
+            };
+        });
+    }
+
+    async function startInferenceLoopForVideo() {
+        if (appState.inferenceRunning) return;
+        appState.inferenceRunning = true;
+        async function detectVideoFrame() {
+            if (!appState.isCameraActive || mainVideo.paused || mainVideo.ended) {
+                appState.inferenceRunning = false; return;
+            }
+            try {
+                const rect = mainVideo.getBoundingClientRect();
+                if (overlayCanvas) {
+                    overlayCanvas.width = rect.width; overlayCanvas.height = rect.height;
+                }
+                inputCtx.drawImage(mainVideo, 0, 0, 640, 640);
+                const tensor = preprocessFrame(inputCtx.getImageData(0, 0, 640, 640));
+                const [ppe, cone, fall] = await Promise.all([
+                    sessionPPE.run({ [sessionPPE.inputNames[0]]: tensor }),
+                    sessionCone.run({ [sessionCone.inputNames[0]]: tensor }),
+                    sessionFall.run({ [sessionFall.inputNames[0]]: tensor })
+                ]);
+                const ppeRes = postprocess(ppe[sessionPPE.outputNames[0]].data, PPE_CLASSES);
+                const coneRes = postprocess(cone[sessionCone.outputNames[0]].data, CONE_CLASSES);
+                const fallRes = postprocess(fall[sessionFall.outputNames[0]].data, FALL_CLASSES);
+                drawDetections(ppeRes, coneRes, fallRes);
+                checkViolations(ppeRes, fallRes);
+            } catch (err) { console.error(err); }
+            requestAnimationFrame(detectVideoFrame);
         }
-        // Load ONNX models → tự động mở camera sau khi load xong
-        loadModels();
-        // Poll backend logs song song (nếu có)
-        setInterval(fetchLogs, 3000);
+        detectVideoFrame();
     }
 
     init();
