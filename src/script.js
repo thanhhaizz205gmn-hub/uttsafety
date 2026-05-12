@@ -56,6 +56,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // ─── DOM Elements ─────────────────────────────────────────────────────
     const mainVideo = document.getElementById('main-video');
+    const videoWebcam = document.getElementById('webcam'); 
     const videoContainer = document.getElementById('video-container');
     const roiOverlay = document.getElementById('roi-alert-overlay');
     const violationList = document.getElementById('violation-list');
@@ -70,11 +71,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // ─── Real-time API Logic ──────────────────────────────────────────────
     let lastLogTime = "";
-    let isAlertActive = false;
-
+    
     async function fetchSystemData() {
         try {
-            // 1. Fetch Stats
             const statsRes = await fetch('/api/stats');
             const stats = await statsRes.json();
 
@@ -82,14 +81,12 @@ document.addEventListener("DOMContentLoaded", () => {
             document.getElementById('cam-online-count').textContent = onlineCount;
             document.getElementById('cam-counter-text').textContent = `${onlineCount}/${stats.cameras.total}`;
 
-            // ROI Status update
             const roiEl = document.getElementById('roi-status');
             if (roiEl) {
                 roiEl.textContent = stats.roi_violations > 0 ? 'CẢNH BÁO' : 'An toàn';
                 roiEl.className = stats.roi_violations > 0 ? 'text-danger' : 'text-success';
             }
 
-            // YOLO Badge Pulse logic
             const yoloBadge = document.getElementById('yolo-badge');
             const yoloText = document.getElementById('yolo-status-text');
             if (onlineCount > 0) {
@@ -100,7 +97,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 yoloText.textContent = "YOLO READY";
             }
 
-            // 2. Fetch Logs
             const logsRes = await fetch('/api/logs');
             const data = await logsRes.json();
             const logs = data.logs || [];
@@ -121,11 +117,9 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function processNewAlert(log, allLogs) {
-        // Visual Alert
         videoContainer.classList.add('alert-active');
         alertBadge.textContent = allLogs.length;
 
-        // Audio Alert with 10s cooldown
         const now = Date.now();
         if (now - lastAudioTime > 10000) {
             if (log.type === 'PPE') {
@@ -136,19 +130,16 @@ document.addEventListener("DOMContentLoaded", () => {
             lastAudioTime = now;
         }
 
-        // ROI Overlay
         if (log.type === 'ROI' || allLogs.some(l => l.type === 'ROI')) {
             roiOverlay.classList.add('active');
         } else {
             roiOverlay.classList.remove('active');
         }
 
-        // Auto reset visual alert after 3 seconds
         setTimeout(() => {
             videoContainer.classList.remove('alert-active');
         }, 3000);
 
-        // Update AI Suggestion - Automated Cycle
         aiRecs.innerHTML = `
             <div class="ai-msg">
                 <div class="ai-msg-content">
@@ -164,7 +155,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function updateViolationUI(logs) {
         violationCount.textContent = logs.length;
-
         const listHtml = logs.slice(0, 10).map((log, idx) => `
             <div class="violation-item ${idx === 0 ? 'active new-violation-flash' : ''}">
                 <div style="display: flex; align-items: center;">
@@ -177,7 +167,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 <span class="type">${log.type}: ${log.detail}</span>
             </div>
         `).join('');
-
         violationList.innerHTML = listHtml;
         lucide.createIcons();
     }
@@ -211,7 +200,10 @@ document.addEventListener("DOMContentLoaded", () => {
         alertBadge.textContent = "0";
     }
 
-    setInterval(fetchSystemData, 1000);
+    // Khởi chạy vòng lặp lấy dữ liệu hệ thống (Tách riêng để không treo UI)
+    setTimeout(() => {
+        setInterval(fetchSystemData, 1500); 
+    }, 2000);
 
     // ─── Camera Controls ──────────────────────────────────────────────────
     const btnStart = document.getElementById('btn-start-cam');
@@ -222,7 +214,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const btnBrowseFile = document.getElementById('btn-browse-file');
     const selectedFilenameLabel = document.getElementById('selected-filename');
 
-    // Toggle File Upload UI
     camSourceSelect.addEventListener('change', () => {
         if (camSourceSelect.value === '3') {
             fileUploadGroup.style.display = 'flex';
@@ -231,7 +222,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    // Browse File
     btnBrowseFile.addEventListener('click', () => {
         videoUploadInput.click();
     });
@@ -243,108 +233,85 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    if (btnStart) {
-        btnStart.addEventListener('click', async () => {
-            const selectedMode = camSourceSelect.value;
-            let finalSource = selectedMode;
+    // ─── Hàm mở Camera chuẩn iOS (Bắt buộc gọi từ sự kiện Click) ──────────
+    async function initIOSCamera() {
+        const constraints = {
+            video: {
+                facingMode: 'environment',
+                width: { ideal: 1280 },
+                height: { ideal: 720 }
+            },
+            audio: false
+        };
 
-            // Reset UI
-            mainVideo.style.display = 'block';
-            localVideo.style.display = 'none';
-
-            // Nếu là chế độ tải lên video
-            if (selectedMode === '3') {
-                const file = videoUploadInput.files[0];
-                if (!file) {
-                    alert("⚠️ Vui lòng chọn tệp video trước khi nhấn Kết nối!");
-                    return;
-                }
-
-                // 1. Upload File
-                btnStart.disabled = true;
-                btnStart.innerHTML = `<i data-lucide="loader-2" class="spin"></i> Đang xử lý...`;
-                lucide.createIcons();
-
-                const formData = new FormData();
-                formData.append('file', file);
-
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            
+            mainVideo.style.display = 'none';
+            videoWebcam.style.opacity = '1';
+            videoWebcam.style.pointerEvents = 'auto';
+            
+            videoWebcam.srcObject = stream;
+            
+            videoWebcam.onloadedmetadata = async () => {
                 try {
-                    const uploadRes = await fetch('/api/upload_video', {
-                        method: 'POST',
-                        body: formData
-                    });
-                    if (!uploadRes.ok) throw new Error("Server error: " + uploadRes.status);
-                    const uploadData = await uploadRes.json();
-                    if (uploadData.status === 'success') {
-                        finalSource = uploadData.filename;
-                    } else {
-                        throw new Error(uploadData.message);
-                    }
-                } catch (err) {
-                    alert("❌ Lỗi tải lên: " + err.message);
-                    btnStart.disabled = false;
-                    btnStart.innerHTML = `<i data-lucide="play"></i> Kết nối`;
-                    lucide.createIcons();
-                    return;
+                    await videoWebcam.play();
+                } catch (e) {
+                    console.error("Play failed", e);
                 }
-            }
+            };
+            
+            document.getElementById('yolo-status-text').textContent = "LOCAL CAM ACTIVE";
+        } catch (err) {
+            let msg = "Lỗi Camera: " + err.name;
+            if (err.name === 'NotAllowedError') msg = "❌ Bạn cần cấp quyền Camera trong Cài đặt Safari.";
+            alert(msg);
+        }
+    }
 
-            // 2. Start Stream
-            if (selectedMode === '2') {
-                // Local Camera Access (Directly from Browser/PWA)
-                if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                    try {
-                        // iOS Safari requires specific constraints
-                        const constraints = {
-                            video: { 
-                                facingMode: 'environment', // Use back camera
-                                width: { ideal: 1280 },
-                                height: { ideal: 720 }
-                            },
-                            audio: false 
-                        };
+    async function handleVideoUpload() {
+        const file = videoUploadInput.files[0];
+        if (!file) {
+            alert("⚠️ Vui lòng chọn tệp video!");
+            btnStart.disabled = false;
+            btnStart.innerHTML = `<i data-lucide="play"></i> Kết nối`;
+            return;
+        }
 
-                        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-                        
-                        // Switch display elements
-                        mainVideo.style.display = 'none';
-                        localVideo.style.display = 'block';
-                        
-                        // Set stream to video element
-                        localVideo.srcObject = stream;
-                        
-                        // iOS requires playsinline, muted, and autoplay (handled in HTML)
-                        // but calling play() explicitly is safer
-                        try {
-                            await localVideo.play();
-                        } catch (e) {
-                            console.error("Autoplay failed", e);
-                            alert("Nhấn vào màn hình để phát video camera.");
-                        }
-                        
-                        document.getElementById('yolo-status-text').textContent = "LOCAL CAM ACTIVE";
-                    } catch (err) {
-                        let msg = "Không thể truy cập camera.";
-                        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-                            msg = "❌ Bạn đã chặn quyền truy cập Camera. Vui lòng vào Cài đặt -> Safari -> Camera để cho phép.";
-                        } else if (err.name === 'NotFoundError') {
-                            msg = "❌ Không tìm thấy thiết bị camera.";
-                        }
-                        alert(msg);
-                        console.error(err);
-                        return;
-                    }
-                } else {
-                    alert("Trình duyệt này không hỗ trợ MediaDevices API.");
-                    return;
-                }
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const res = await fetch('/api/upload_video', { method: 'POST', body: formData });
+            const data = await res.json();
+            if (data.status === 'success') {
+                mainVideo.src = `/video_feed/${data.filename}`;
             } else {
-                // Remote Stream (Python Backend MJPEG)
-                mainVideo.srcObject = null;
-                mainVideo.src = `/video_feed/${finalSource}`;
+                throw new Error(data.message);
+            }
+        } catch (err) {
+            alert("❌ Lỗi: " + err.message);
+            btnStart.disabled = false;
+            btnStart.innerHTML = `<i data-lucide="play"></i> Kết nối`;
+        }
+    }
+
+    if (btnStart) {
+        btnStart.addEventListener('click', () => {
+            const selectedMode = camSourceSelect.value;
+            
+            mainVideo.style.display = 'block';
+            videoWebcam.style.opacity = '0';
+            videoWebcam.style.pointerEvents = 'none';
+
+            if (selectedMode === '2') {
+                initIOSCamera();
+            } else if (selectedMode === '3') {
+                handleVideoUpload();
+            } else {
+                mainVideo.src = `/video_feed/${selectedMode}`;
             }
 
-            // UI Feedback
             btnStart.disabled = true;
             btnStart.innerHTML = `<i data-lucide="loader-2" class="spin"></i> Đang chạy...`;
             btnStop.disabled = false;
@@ -354,19 +321,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (btnStop) {
         btnStop.addEventListener('click', () => {
-            // Stop local stream if exists
-            const activeStream = localVideo.srcObject || mainVideo.srcObject;
+            const activeStream = videoWebcam.srcObject;
             if (activeStream) {
-                const tracks = activeStream.getTracks();
-                tracks.forEach(track => track.stop());
-                localVideo.srcObject = null;
-                mainVideo.srcObject = null;
+                activeStream.getTracks().forEach(track => track.stop());
+                videoWebcam.srcObject = null;
             }
             mainVideo.src = '';
             mainVideo.style.display = 'block';
-            localVideo.style.display = 'none';
+            videoWebcam.style.opacity = '0';
 
-            // UI Feedback
             btnStart.disabled = false;
             btnStart.innerHTML = `<i data-lucide="play"></i> Kết nối`;
             btnStop.disabled = true;

@@ -358,12 +358,22 @@ body {
     }
 }
 
+.cam-view-controls {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    position: relative;
+    z-index: 9999; /* Ensure buttons are clickable */
+}
+
 .viewport-box {
     flex: 1;
     background: #000;
     border-radius: 16px;
     position: relative;
-    overflow: hidden;
+    /* Remove overflow:hidden to prevent clipping if necessary, 
+       but keeping it for border-radius. Ensuring content fits. */
+    overflow: visible; 
     aspect-ratio: 16/9;
 }
 
