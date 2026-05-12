@@ -6,6 +6,7 @@
     --primary-light: #e1f0ff;
     --danger: #ff3b30;
     --success: #34c759;
+    --warning: #ff9500;
     --text-main: #1d1d1f;
     --text-muted: #86868b;
     --border-color: #f2f2f7;
@@ -269,3 +270,39 @@ input:checked + .slider:before { transform: translateX(24px); }
     .grid-6 { grid-template-columns: repeat(3, 1fr); }
     .grid-8 { grid-template-columns: repeat(4, 1fr); }
 }
+
+/* ── AI Status Indicator Dot ── */
+.ai-indicator { width:10px; height:10px; border-radius:50%; display:inline-block; flex-shrink:0; }
+.ai-indicator.active  { background:var(--success); box-shadow:0 0 6px var(--success); animation:pulse-dot 2s infinite; }
+.ai-indicator.offline { background:var(--text-muted); }
+.ai-indicator.error   { background:var(--danger); box-shadow:0 0 6px var(--danger); }
+@keyframes pulse-dot { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
+
+/* ── Violation Badges ── */
+.badge-warning { background:#fff3cd; color:#856404; padding:2px 8px; border-radius:6px; font-size:.7rem; font-weight:600; }
+.badge-danger  { background:#f8d7da; color:#721c24; padding:2px 8px; border-radius:6px; font-size:.7rem; font-weight:600; }
+.badge-fall    { background:#ffe0cc; color:#8a3600; padding:2px 8px; border-radius:6px; font-size:.7rem; font-weight:600; }
+
+/* ── Stats Table ── */
+.table-wrapper { overflow-x:auto; padding:5px; }
+table { width:100%; border-collapse:collapse; font-size:.8rem; }
+th { text-align:left; font-size:.7rem; color:var(--text-muted); text-transform:uppercase; padding:8px 10px; }
+td { padding:12px 10px; border-top:1px solid var(--border-color); }
+tr:hover td { background:var(--primary-light); }
+
+/* ── App Layout ── */
+.app-main { padding:0 12px 160px; }
+.section-header { padding:14px 20px; margin-bottom:10px; font-size:1rem; font-weight:700; }
+
+/* ── Grid Controls ── */
+.grid-controls { display:flex; justify-content:space-between; align-items:center; padding:10px 16px; margin:8px 0; font-size:.85rem; font-weight:500; }
+.mini-select { padding:8px 12px; border-radius:10px; border:1px solid var(--border-color); background:var(--bg-color); color:var(--text-main); font-size:.8rem; font-weight:600; }
+
+/* ── AI Filter Bar ── */
+.ai-filter-bar { position:fixed; bottom:calc(68px + var(--safe-bottom)); left:12px; right:12px; display:flex; justify-content:space-around; padding:10px; border-radius:18px; z-index:900; box-shadow:0 4px 20px rgba(0,0,0,.1); }
+.chip input { display:none; }
+.chip span { display:flex; align-items:center; gap:5px; padding:6px 12px; border-radius:10px; font-size:.72rem; font-weight:600; background:var(--card-bg); color:var(--text-muted); border:1.5px solid var(--border-color); cursor:pointer; transition:all .2s; }
+.chip input:checked + span { background:var(--primary); color:white; border-color:var(--primary); }
+
+/* ── Fullscreen Camera ── */
+.camera-card.enlarged { position:fixed; top:0; left:0; right:0; bottom:0; z-index:2000; border-radius:0; aspect-ratio:auto; margin:0; }

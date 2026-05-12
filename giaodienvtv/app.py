@@ -29,7 +29,8 @@ app.add_middleware(
 
 # ----------------- CẤU HÌNH AI -----------------
 PPE_MODEL_PATH = '../best.pt'
-CONE_MODEL_PATH = '../best (1).pt'
+CONE_MODEL_PATH = '../bestcone.pt'
+TUTHENGA_MODEL_PATH = '../tuthenga.pt'
 VIDEO_PATH = '../video7.mp4'
 
 PPE_CHECK_TIME = 1
@@ -47,9 +48,10 @@ PERSON_CONFIDENCE = 0.3
 
 # Global AI Variables
 print("[AI] Khởi tạo hệ thống - Đang nạp Model...")
-model_ppe = YOLO(PPE_MODEL_PATH)
-model_cone = YOLO(CONE_MODEL_PATH)
-print("[AI] Model đã sẵn sàng!")
+model_ppe = YOLO(PPE_MODEL_PATH)    # best.pt: Nhận diện Helmet + Vest
+model_cone = YOLO(CONE_MODEL_PATH)   # bestcone.pt: Nhận diện Cone/Sign để xác định ROI
+model_tuthenga = YOLO(TUTHENGA_MODEL_PATH)  # tuthenga.pt: Nhận diện tư thế ngã (Fall Detection)
+print("[AI] Model đã sẵn sàng! (PPE + Cone + Fall Detection)")
 
 cone_centers = []
 last_cone_scan_time = -CONE_SCAN_INTERVAL
@@ -93,8 +95,12 @@ person_states = defaultdict(PersonState)
 
 # Log event storage
 system_logs = []
-def add_log(track_id, violation_type, detail="", image_base64=None):
+active_camera_name = "CAM 01"  # Default active camera label
+
+def add_log(track_id, violation_type, detail="", image_base64=None, camera_name=None):
+    global active_camera_name
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    cam_label = camera_name if camera_name else active_camera_name
     
     # Persist to SQLite
     try:
@@ -103,7 +109,7 @@ def add_log(track_id, violation_type, detail="", image_base64=None):
         cursor.execute('''
             INSERT INTO logs (timestamp, track_id, violation_type, detail, image_path)
             VALUES (?, ?, ?, ?, ?)
-        ''', (timestamp, track_id, violation_type, detail, "snapshot_embedded"))
+        ''', (timestamp, track_id, violation_type, f"[{cam_label}] {detail}", "snapshot_embedded"))
         conn.commit()
         conn.close()
     except Exception as e:
@@ -115,6 +121,7 @@ def add_log(track_id, violation_type, detail="", image_base64=None):
         "id": track_id,
         "type": violation_type,
         "detail": detail,
+        "camera": cam_label,
         "image": image_base64
     })
     if len(system_logs) > 50:
@@ -128,7 +135,11 @@ def is_center_inside(inner_box, outer_box):
     return (ox1 <= cx <= ox2) and (oy1 <= cy <= oy2)
 
 async def generate_frames(cam_id: str):
-    global model_ppe, model_cone, person_states, cone_centers, last_cone_scan_time
+    global model_ppe, model_cone, model_tuthenga, person_states, cone_centers, last_cone_scan_time, active_camera_name
+    
+    # Gán tên camera vào log
+    cam_name_map = {"1": "CAM 01 - Server", "2": "CAM 02 - Webcam"}
+    active_camera_name = cam_name_map.get(cam_id, f"CAM - {cam_id}")
     
     # RESET TOÀN BỘ TRẠNG THÁI KHI BẮT ĐẦU NGUỒN MỚI
     cone_centers = [] 
@@ -207,7 +218,20 @@ async def generate_frames(cam_id: str):
             cv2.putText(frame, "[ROI - CAN THEM COC]", (cone_centers[0][0], cone_centers[0][1] - 15), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
-        # 2. TRACKING PPE
+        # 2. FALL DETECTION (tuthenga model - mỗi 10 frame để tiết kiệm CPU)
+        if frame_count % 10 == 0:
+            results_fall = model_tuthenga(frame, conf=0.4, verbose=False)
+            if results_fall[0].boxes is not None:
+                for box in results_fall[0].boxes:
+                    cls_name = model_tuthenga.names[int(box.cls[0].item())].lower()
+                    if 'fall' in cls_name or 'down' in cls_name or 'nga' in cls_name:
+                        x1, y1, x2, y2 = [int(v) for v in box.xyxy[0].tolist()]
+                        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 128, 255), 3)
+                        cv2.putText(frame, "!!! TE NGA !!!", (x1, y1 - 15),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 128, 255), 2)
+                        add_log(0, "FALL", "Phát hiện người ngã")
+
+        # 3. TRACKING PPE
         # Lấy ngưỡng thấp nhất để YOLO không bỏ sót bất kỳ box nào
         min_conf = min(PPE_CONFIDENCE, PERSON_CONFIDENCE)
         results_ppe = model_ppe.track(frame, conf=min_conf, persist=True, tracker="botsort.yaml", verbose=False)
@@ -356,9 +380,9 @@ async def get_log_history(limit: int = 100):
 @app.get("/api/cameras")
 async def get_cameras():
     return [
-        {"id": 1, "name": "Khu vực A - Cổng 1", "status": "online"},
-        {"id": 2, "name": "Khu vực B - Lối thoát", "status": "stopped"},
-        {"id": 3, "name": "Bãi xe Tầng 1", "status": "stopped"}
+        {"id": "1", "name": "CAM 01 - Khu vực A (Server)", "status": "online"},
+        {"id": "2", "name": "CAM 02 - Webcam Trực tiếp", "status": "available"},
+        {"id": "3", "name": "CAM 03 - Khu vực C", "status": "stopped"}
     ]
 
 @app.get("/api/stats")
