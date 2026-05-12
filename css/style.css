@@ -122,7 +122,8 @@ body {
     overflow: hidden;
     position: relative;
     box-shadow: var(--shadow);
-    aspect-ratio: 16/9;
+    width: 100%;
+    aspect-ratio: 16 / 9;
 }
 
 .camera-card.enlarged {
