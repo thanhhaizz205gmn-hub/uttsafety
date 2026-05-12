@@ -9,7 +9,8 @@ const ASSETS = [
   './assets/icons/icon-192x192.png',
   './assets/icons/icon-512x512.png',
   './models/best.onnx',
-  './models/bestcone.onnx',
+  './models/cone_sign.onnx',
+  './models/tuthenga.onnx',
   'https://unpkg.com/lucide@latest',
   'https://cdn.jsdelivr.net/npm/chart.js'
 ];
@@ -38,7 +39,7 @@ self.addEventListener('activate', (event) => {
 // Fetch Event
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
-  
+
   // BYPASS cache for dynamic API and Camera Stream
   if (url.pathname.includes('/api/') || url.pathname.includes('/video_feed/')) {
     return event.respondWith(fetch(event.request));

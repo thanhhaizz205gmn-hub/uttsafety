@@ -28,9 +28,9 @@ app.add_middleware(
 )
 
 # ----------------- CẤU HÌNH AI -----------------
-PPE_MODEL_PATH = '../best.pt'
-CONE_MODEL_PATH = '../bestcone.pt'
-TUTHENGA_MODEL_PATH = '../tuthenga.pt'
+PPE_MODEL_PATH = 'models/best.onnx'
+CONE_MODEL_PATH = 'models/cone_sign.onnx'
+TUTHENGA_MODEL_PATH = 'models/tuthenga.onnx'
 VIDEO_PATH = '../video7.mp4'
 
 PPE_CHECK_TIME = 1

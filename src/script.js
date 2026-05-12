@@ -18,7 +18,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // ─── ONNX Model Sessions (3 models) ──────────────────────────────────
     let sessionPPE  = null;     // best.onnx      → Helmet, Person, Vest
-    let sessionCone = null;     // bestcone.onnx  → traffic_cone, Sign
+    let sessionCone = null;     // cone_sign.onnx → traffic_cone, Sign
     let sessionFall = null;     // tuthenga.onnx  → Fall (KHÔNG có person)
     let animFrameId = null;
 
@@ -159,12 +159,12 @@ document.addEventListener("DOMContentLoaded", () => {
             console.log('[AI] best.onnx loaded. Classes:', PPE_CLASSES);
 
             setIndicator('offline', 'LOADING CONE...');
-            // Tải bestcone.onnx (traffic_cone + sign)
-            sessionCone = await ort.InferenceSession.create('./models/bestcone.onnx', {
+            // Tải cone_sign.onnx (traffic_cone + sign)
+            sessionCone = await ort.InferenceSession.create('./models/cone_sign.onnx', {
                 executionProviders: ['wasm'],
                 graphOptimizationLevel: 'all'
             });
-            console.log('[AI] bestcone.onnx loaded. Classes:', CONE_CLASSES);
+            console.log('[AI] cone_sign.onnx loaded. Classes:', CONE_CLASSES);
 
             setIndicator('offline', 'LOADING FALL...');
             // Tải tuthenga.onnx (Fall only — KHÔNG có class person)
@@ -281,7 +281,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 const ppeOutput = await sessionPPE.run({ [sessionPPE.inputNames[0]]: tensor });
                 const ppeResults = postprocess(ppeOutput[sessionPPE.outputNames[0]].data, PPE_CLASSES);
 
-                // 5. Cone model: traffic_cone, Sign (bestcone.onnx) — KHÔNG có person
+                // 5. Cone model: traffic_cone, Sign (cone_sign.onnx) — KHÔNG có person
                 const coneOutput = await sessionCone.run({ [sessionCone.inputNames[0]]: tensor });
                 const coneResults = postprocess(coneOutput[sessionCone.outputNames[0]].data, CONE_CLASSES);
 
@@ -289,10 +289,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 const fallOutput = await sessionFall.run({ [sessionFall.inputNames[0]]: tensor });
                 const fallResults = postprocess(fallOutput[sessionFall.outputNames[0]].data, FALL_CLASSES);
 
-                // 7. Gộp tất cả kết quả và vẽ Bounding Box
-                drawDetections([...ppeResults, ...coneResults, ...fallResults]);
+                // 7. Vẽ Bounding Box (compliance-aware)
+                drawDetections(ppeResults, coneResults, fallResults);
 
-                // 8. Chỉ kiểm tra vi phạm bằng PPE + Fall (Cone không liên quan compliance)
+                // 8. Kiểm tra vi phạm compliance (PPE + Fall)
                 checkViolations(ppeResults, fallResults);
 
             } catch (err) {
@@ -382,46 +382,79 @@ document.addEventListener("DOMContentLoaded", () => {
         return inter / (aArea + bArea - inter + 1e-6);
     }
 
-    // ─── Draw Bounding Boxes ──────────────────────────────────────────────
-    const CLASS_COLORS = {
-        helmet: '#34c759', vest: '#34c759', person: '#007aff',
-        fall: '#ff3b30', down: '#ff3b30', nga: '#ff9500'
-    };
-
-    function drawDetections(detections) {
+    // ─── Draw Bounding Boxes (Compliance-Aware, kế thừa app.py) ──────────
+    function drawDetections(ppeResults, coneResults, fallResults) {
         if (!overlayCtx || !overlayCanvas) return;
-        const W = overlayCanvas.width;
-        const H = overlayCanvas.height;
+        const W = overlayCanvas.width, H = overlayCanvas.height;
         overlayCtx.clearRect(0, 0, W, H);
-
         const filters = {
             helmet: document.getElementById('filter-helmet')?.checked,
-            vest: document.getElementById('filter-vest')?.checked,
-            pose: document.getElementById('filter-pose')?.checked
+            vest:   document.getElementById('filter-vest')?.checked,
+            sign:   document.getElementById('filter-sign')?.checked,
+            pose:   document.getElementById('filter-pose')?.checked
         };
 
-        detections.forEach(det => {
-            // Lọc theo checkbox
-            if (det.className === 'helmet' && !filters.helmet) return;
-            if (det.className === 'vest' && !filters.vest) return;
-            if ((det.className === 'fall' || det.className === 'down') && !filters.pose) return;
+        // 1. Cone/Sign — vàng
+        if (filters.sign) coneResults.forEach(d => {
+            _drawBox(d, W, H, '#ffcc00', 2);
+            _drawLabel(d.x1*W, d.y1*H, d.className.toUpperCase(), '#ffcc00');
+        });
 
-            const x1 = det.x1 * W, y1 = det.y1 * H;
-            const bw = (det.x2 - det.x1) * W, bh = (det.y2 - det.y1) * H;
-            const color = CLASS_COLORS[det.className] || '#ffffff';
-            const label = `${det.className} ${(det.conf * 100).toFixed(0)}%`;
+        // 2. Fall — đỏ cam
+        if (filters.pose) fallResults.forEach(d => {
+            _drawBox(d, W, H, '#ff3b30', 3);
+            _drawLabel(d.x1*W, d.y1*H, '!!! TE NGA !!!', '#ff3b30');
+        });
 
-            overlayCtx.strokeStyle = color;
-            overlayCtx.lineWidth = 2;
-            overlayCtx.strokeRect(x1, y1, bw, bh);
+        // 3. Helmet / Vest riêng (mờ, viền mỏng)
+        const helmets = ppeResults.filter(d => d.className === 'helmet');
+        const vests   = ppeResults.filter(d => d.className === 'vest');
+        if (filters.helmet) helmets.forEach(d => _drawBox(d, W, H, '#34c759', 1));
+        if (filters.vest)   vests.forEach(d =>   _drawBox(d, W, H, '#a3e635', 1));
 
-            overlayCtx.fillStyle = color;
-            overlayCtx.font = 'bold 12px Plus Jakarta Sans, sans-serif';
-            overlayCtx.fillRect(x1, y1 - 18, overlayCtx.measureText(label).width + 8, 18);
-            overlayCtx.fillStyle = '#fff';
-            overlayCtx.fillText(label, x1 + 4, y1 - 4);
+        // 4. Person — compliance check (kế thừa app.py L260-337)
+        ppeResults.filter(d => d.className === 'person').forEach((person, idx) => {
+            const tid = person.trackId ?? (idx + 1);
+            const x1 = person.x1*W, y1 = person.y1*H;
+            const bw = (person.x2-person.x1)*W, bh = (person.y2-person.y1)*H;
+
+            const hasHelmet = !filters.helmet || helmets.some(h => _isCenterInside(h, person));
+            const hasVest   = !filters.vest   || vests.some(v => _isCenterInside(v, person));
+
+            const missing = [];
+            if (filters.helmet && !hasHelmet) missing.push('Helmet');
+            if (filters.vest   && !hasVest)   missing.push('Vest');
+
+            if (missing.length === 0) {
+                overlayCtx.strokeStyle = '#34c759'; overlayCtx.lineWidth = 2;
+                overlayCtx.strokeRect(x1, y1, bw, bh);
+                _drawLabel(x1, y1, `ID:${tid} | AN TOAN`, '#34c759');
+            } else {
+                overlayCtx.strokeStyle = '#ff3b30'; overlayCtx.lineWidth = 3;
+                overlayCtx.strokeRect(x1, y1, bw, bh);
+                _drawLabel(x1, y1 - 26, `!! NO ${missing.join(' & ')} !!`, '#ff3b30');
+                overlayCtx.font = '10px Plus Jakarta Sans, sans-serif';
+                overlayCtx.fillStyle = '#ff3b30';
+                overlayCtx.fillText(`id:${tid}`, x1 + 2, y1 - 4);
+            }
         });
     }
+
+    function _isCenterInside(inner, outer) {
+        const cx = (inner.x1 + inner.x2) / 2, cy = (inner.y1 + inner.y2) / 2;
+        return cx >= outer.x1 && cx <= outer.x2 && cy >= outer.y1 && cy <= outer.y2;
+    }
+    function _drawLabel(x, y, text, color) {
+        overlayCtx.font = 'bold 12px Plus Jakarta Sans, sans-serif';
+        const tw = overlayCtx.measureText(text).width + 8;
+        overlayCtx.fillStyle = color; overlayCtx.fillRect(x, y - 18, tw, 18);
+        overlayCtx.fillStyle = '#fff'; overlayCtx.fillText(text, x + 4, y - 4);
+    }
+    function _drawBox(det, W, H, color, lw) {
+        overlayCtx.strokeStyle = color; overlayCtx.lineWidth = lw;
+        overlayCtx.strokeRect(det.x1*W, det.y1*H, (det.x2-det.x1)*W, (det.y2-det.y1)*H);
+    }
+
 
     // ─── Spatial Overlap Ratio (kế thừa từ giaodienvtv) ─────────────────
     function getOverlapRatio(boxA, boxB) {
@@ -454,21 +487,25 @@ document.addEventListener("DOMContentLoaded", () => {
         let violatorCount = 0;
         let violationDetail = null;
 
-        // ─── Logic đối soát từng người theo tọa độ (kế thừa giaodienvtv) ────
-        persons.forEach(person => {
-            // Kiểm tra: có mũ nào đè lên người này không?
-            const hasHelmet = helmets.some(h => getOverlapRatio(h, person) > 0.05);
-            // Kiểm tra: có áo nào đè lên người này không?
-            const hasVest = vests.some(v => getOverlapRatio(v, person) > 0.10);
+        // Logic đối soát: kiểm tra từng người có ĐỦ CẢ helmet VÀ vest không
+        persons.forEach((person, idx) => {
+            const tid = person.trackId ?? (idx + 1);
+            const hasHelmet = !filters.helmet || helmets.some(h => _isCenterInside(h, person));
+            const hasVest   = !filters.vest   || vests.some(v => _isCenterInside(v, person));
 
-            if (filters.helmet && !hasHelmet) {
+            const missing = [];
+            if (filters.helmet && !hasHelmet) missing.push('Helmet');
+            if (filters.vest   && !hasVest)   missing.push('Vest');
+
+            if (missing.length > 0) {
                 violatorCount++;
-                if (!violationDetail) violationDetail = { type: 'PPE', detail: 'Thiếu Helmet' };
-            } else if (filters.vest && !hasVest) {
-                violatorCount++;
-                if (!violationDetail) violationDetail = { type: 'PPE', detail: 'Thiếu Vest' };
+                if (!violationDetail) violationDetail = {
+                    type: 'PPE',
+                    detail: `ID:${tid} No ${missing.join(' & ')}`
+                };
             }
         });
+
 
         // Kiểm tra ngã
         if (filters.pose && falls.length > 0) {
