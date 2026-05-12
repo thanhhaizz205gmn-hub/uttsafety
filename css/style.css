@@ -92,6 +92,11 @@ body {
     border-radius: 10px;
     font-weight: 700;
     border: 2px solid var(--card-bg);
+    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.badge-count.pulse {
+    transform: scale(1.5);
 }
 
 /* ── Camera Grid System ── */
@@ -112,7 +117,7 @@ body {
 }
 
 .grid-1 { grid-template-columns: 1fr; }
-.grid-2 { grid-template-columns: 1fr; } /* Mobile default 1 col */
+.grid-2 { grid-template-columns: 1fr; }
 .grid-4 { grid-template-columns: repeat(2, 1fr); }
 .grid-6, .grid-8 { grid-template-columns: repeat(2, 1fr); }
 
@@ -123,14 +128,8 @@ body {
     position: relative;
     box-shadow: var(--shadow);
     aspect-ratio: 16/9;
-}
-
-.camera-card.enlarged {
-    position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
-    z-index: 2000;
-    border-radius: 0;
-    aspect-ratio: auto;
+    border: 2px solid transparent;
+    transition: all 0.3s;
 }
 
 .stream-container { width: 100%; height: 100%; background: #000; position: relative; }
@@ -160,64 +159,6 @@ body {
     padding: 4px;
     border-radius: 4px;
 }
-
-/* ── AI Filter Bar (Floating Chips) ── */
-.ai-filter-bar {
-    position: fixed;
-    bottom: 90px;
-    left: 20px;
-    right: 20px;
-    display: flex;
-    justify-content: space-around;
-    padding: 12px;
-    border-radius: 20px;
-    z-index: 900;
-}
-
-.chip { cursor: pointer; }
-.chip input { display: none; }
-.chip span {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 15px;
-    border-radius: 12px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    background: var(--card-bg);
-    color: var(--text-muted);
-    border: 1px solid var(--border-color);
-}
-
-.chip input:checked + span {
-    background: var(--primary);
-    color: white;
-    border-color: var(--primary);
-}
-
-/* ── Settings & Switches ── */
-.setting-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 15px 20px;
-    margin-bottom: 10px;
-}
-
-.setting-info { display: flex; align-items: center; gap: 15px; font-weight: 500; }
-
-.switch { position: relative; display: inline-block; width: 50px; height: 26px; }
-.switch input { opacity: 0; width: 0; height: 0; }
-.slider {
-    position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
-    background-color: #ccc; transition: .4s; border-radius: 34px;
-}
-.slider:before {
-    position: absolute; content: ""; height: 20px; width: 20px; left: 3px; bottom: 3px;
-    background-color: white; transition: .4s; border-radius: 50%;
-}
-input:checked + .slider { background-color: var(--primary); }
-input:checked + .slider:before { transform: translateX(24px); }
 
 /* ── Bottom Nav Refined ── */
 .bottom-nav {
@@ -255,6 +196,7 @@ input:checked + .slider:before { transform: translateX(24px); }
     color: white;
     box-shadow: 0 8px 20px rgba(0, 122, 255, 0.3);
     border: 4px solid var(--bg-color);
+    transition: background 0.3s;
 }
 
 /* ── Glass Effect ── */
@@ -281,7 +223,7 @@ input:checked + .slider:before { transform: translateX(24px); }
 /* ── Violation Badges ── */
 .badge-warning { background:#fff3cd; color:#856404; padding:2px 8px; border-radius:6px; font-size:.7rem; font-weight:600; }
 .badge-danger  { background:#f8d7da; color:#721c24; padding:2px 8px; border-radius:6px; font-size:.7rem; font-weight:600; }
-.badge-fall    { background:#ffe0cc; color:#8a3600; padding:2px 8px; border-radius:6px; font-size:.7rem; font-weight:600; }
+.badge-fall    { background:#ff9500; color:white; padding:2px 8px; border-radius:6px; font-size:.7rem; font-weight:700; }
 
 /* ── Stats Table ── */
 .table-wrapper { overflow-x:auto; padding:5px; }
@@ -306,3 +248,23 @@ tr:hover td { background:var(--primary-light); }
 
 /* ── Fullscreen Camera ── */
 .camera-card.enlarged { position:fixed; top:0; left:0; right:0; bottom:0; z-index:2000; border-radius:0; aspect-ratio:auto; margin:0; }
+
+/* ── Alarm Animations ── */
+.flash-red {
+    animation: flash-red-bg 0.5s infinite alternate;
+    border: 3px solid var(--danger) !important;
+}
+
+@keyframes flash-red-bg {
+    from { background: var(--card-bg); }
+    to { background: rgba(255, 59, 48, 0.2); }
+}
+
+.new-log-flash {
+    animation: log-highlight 2s ease-out;
+}
+
+@keyframes log-highlight {
+    0% { background: var(--primary-light); }
+    100% { background: transparent; }
+}
